@@ -301,6 +301,53 @@ def match_caption(lines):
     return None, top[0], group
 
 
+def _cy(s):
+    """Cyrillic letters and single spaces only (OCR noise like ';', '•', Latin look-alikes dropped)."""
+    return re.sub(r"\s+", " ", re.sub(r"[^а-яђјљњћџ ]", " ", s.lower())).strip()
+
+
+_CYR_ROSTER = [(i, _cy(mp["cyr"]), _cy(mp["cyr"].split(" ", 1)[-1])) for i, mp in enumerate(ROSTER) if mp.get("cyr")]
+_CYR_GROUPS = sorted({mp["group"] for mp in ROSTER if mp.get("group")})
+
+
+def match_caption_cyr(reads):
+    """Captions read with the Serbian-Cyrillic Windows OCR, several image variants of one frame.
+    reads: list (one per variant) of [(text, y)] with y = line centre as a fraction of the caption box height.
+    The name is the upper line; the lower one is the group ("Александар Вучић - Србија побеђује" - which
+    contains a name, so it must never be matched as the speaker). Returns (mp or None, score, group)."""
+    best = {}
+    group, gbest = "", 0.0
+    for lines in reads:
+        rows = []
+        for text, y in sorted(lines, key=lambda x: x[1]):
+            ln = _cy(text)
+            if len(ln.replace(" ", "")) < 4:
+                continue
+            g_r, g_name = max((_partial(_cy(g)[-14:], ln), g) for g in _CYR_GROUPS)
+            rows.append((ln, y, g_r >= 0.7))
+            if g_r > gbest:
+                group, gbest = g_name, g_r
+        group_y = min((y for _ln, y, is_g in rows if is_g), default=None)
+        for ln, y, is_g in rows:
+            # the name is above the group line; with no group line found, the upper half of the box
+            if is_g or (group_y is not None and y >= group_y) or (group_y is None and y >= 0.6):
+                continue
+            for i, full, sur in _CYR_ROSTER:
+                sp = _partial(sur, ln) * min(1.0, len(sur.replace(" ", "")) / 7)
+                s = 0.5 * difflib.SequenceMatcher(None, full, ln).ratio() + 0.5 * sp
+                if s > best.get(i, 0.0):
+                    best[i] = s
+    if gbest < 0.6:
+        group = ""
+    if not best:
+        return None, 0.0, group
+    ranked = sorted(((s, i) for i, s in best.items()), reverse=True)
+    top, second = ranked[0], ranked[1] if len(ranked) > 1 else (0.0, None)
+    if top[0] >= 0.62 and top[0] - second[0] >= 0.08:
+        return ROSTER[top[1]], top[0], group
+    return None, top[0], group
+
+
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")

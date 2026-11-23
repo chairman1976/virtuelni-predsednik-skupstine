@@ -23,7 +23,7 @@ If YouTube stops working after a while, run `bin\yt-dlp.exe -U` in the app folde
 On the first session the speech model (Whisper large-v3-turbo, ~1.6 GB) and the voice model (40 MB) download
 automatically. Requirements: an NVIDIA graphics card for live speed (without one it runs on the CPU - fine for
 short recordings, too slow for live; pick a smaller `whisper_model` in `settings_local.json`, e.g. `small`).
-Name captions are read with Windows OCR (Serbian Latin if installed, otherwise English). If your antivirus scans
+Name captions (Cyrillic) are read with Windows OCR. Best: add the Serbian-Cyrillic OCR once - PowerShell **as administrator**: `Add-WindowsCapability -Online -Name "Language.OCR~~~sr-CYRL-RS~0.0.1.0"` (small download). Without it the app falls back to Serbian Latin / English OCR and matches Latin look-alikes, which misses more names. If your antivirus scans
 HTTPS and Python reports certificate errors, export its root certificate, append it to certifi's bundle and point
 the environment variable `PRED_CA_BUNDLE` at that file.
 

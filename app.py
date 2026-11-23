@@ -543,7 +543,9 @@ class Main(QMainWindow):
         self.timer_zero_at = None
         self.last_local_caption = 0.0
         self.sp_official.setText("")
-        from videoocr import CaptionReader
+        from videoocr import CaptionReader, cyrillic_ocr_available
+        if not cyrillic_ocr_available():
+            log("Serbian-Cyrillic OCR not installed - captions read as Latin look-alikes")
         self.ocr = CaptionReader(self._ocr_frame, stream.VW, stream.VH, self.b.caption_local.emit,
                                  self.b.timer.emit)
         self.ocr.start()
