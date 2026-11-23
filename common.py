@@ -5,7 +5,9 @@ import os
 import site
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+FROZEN = getattr(sys, "frozen", False)        # running as the PyInstaller .exe
+# .exe: data/, models/, sessions/, settings and bin/ (ffmpeg, node, yt-dlp) live next to the .exe
+ROOT = os.path.dirname(sys.executable) if FROZEN else os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data")
 MODELS = os.path.join(ROOT, "models")
 SESSIONS = os.path.join(ROOT, "sessions")
@@ -21,7 +23,8 @@ def setup_env():
         os.environ.setdefault("SSL_CERT_FILE", CA_BUNDLE)
         os.environ.setdefault("REQUESTS_CA_BUNDLE", CA_BUNDLE)
     # cuBLAS / cuDNN come from the nvidia-* pip wheels
-    for sp in site.getsitepackages():
+    roots = [getattr(sys, "_MEIPASS", ROOT)] if FROZEN else site.getsitepackages()
+    for sp in roots:
         for d in glob.glob(os.path.join(sp, "nvidia", "*", "bin")):
             try:
                 os.add_dll_directory(d)
@@ -29,9 +32,9 @@ def setup_env():
                 pass
             os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
     # pip puts yt-dlp in <python>\Scripts, which is not on PATH when started via pythonw or a .venv
-    scripts = os.path.join(sys.prefix, "Scripts")
-    if os.path.isdir(scripts):
-        os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
+    for tools in (os.path.join(sys.prefix, "Scripts"), os.path.join(ROOT, "bin")):
+        if os.path.isdir(tools):
+            os.environ["PATH"] = tools + os.pathsep + os.environ.get("PATH", "")
     os.makedirs(SESSIONS, exist_ok=True)
 
 
@@ -45,7 +48,7 @@ DEFAULTS = {
     "judge_every_s": 20,
     "min_confidence": 0.6,
     "shout_db": 7.0,
-    "voice_change_sim": 0.55,
+    "voice_change_sim": 0.62,
     "caption_every_s": 60,
     "volume": 0.8,
     "last_url": "",
@@ -60,6 +63,8 @@ def load_settings():
             s.update(json.load(f))
     except (OSError, ValueError):
         pass
+    if s.get("voice_change_sim") == 0.55:
+        s["voice_change_sim"] = 0.62            # old, more lenient default -> strict matching
     if not s["api_key"]:
         s["api_key"] = os.environ.get("ANTHROPIC_API_KEY", "")
     return s

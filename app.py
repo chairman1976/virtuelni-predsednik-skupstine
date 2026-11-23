@@ -12,15 +12,15 @@ from common import SESSIONS, fmt_time, load_settings, log, parse_time, save_sett
 
 setup_env()
 
-# Must come BEFORE PyQt5: PyQt5 ships an old msvcp140.dll; if it is loaded first, CTranslate2 (built with a
+# Must come BEFORE PyQt: Qt ships its own msvcp140.dll; if an older one is loaded first, CTranslate2 (built with a
 # newer MSVC) crashes with an access violation when the Whisper model is created.
 import ctranslate2  # noqa: E402,F401
 import faster_whisper  # noqa: E402,F401
 import sherpa_onnx  # noqa: E402,F401
 
-from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QObject, QRectF, Qt, QTimer, QUrl, pyqtSignal  # noqa: E402
-from PyQt5.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPainterPath  # noqa: E402
-from PyQt5.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QMenu,  # noqa: E402
+from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QObject, QRectF, Qt, QTimer, QUrl, pyqtSignal  # noqa: E402
+from PyQt6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPainterPath  # noqa: E402
+from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QMenu,  # noqa: E402
                              QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
                              QSlider, QSplitter, QStyle, QStyleOptionSlider, QTableWidget, QTableWidgetItem,
                              QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, 
 import names  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import report  # noqa: E402
+import theme  # noqa: E402
 import stream  # noqa: E402
 from rules import KINDS, MEASURES, Discipline  # noqa: E402
 from speakers import CHAIR, SpeakerTracker  # noqa: E402
@@ -62,10 +63,10 @@ class Video(QWidget):
         self.img = None
         self.banner = None          # (lines, color, until)
         self.setMinimumSize(480, 270)
-        self.setStyleSheet("background:#111")
+        self.setStyleSheet("background:#000")
 
     def set_frame(self, data):
-        self.img = QImage(data, stream.VW, stream.VH, stream.VW * 3, QImage.Format_RGB888).copy()
+        self.img = QImage(data, stream.VW, stream.VH, stream.VW * 3, QImage.Format.Format_RGB888).copy()
         self.update()
 
     def show_banner(self, lines, color, secs=8):
@@ -74,17 +75,17 @@ class Video(QWidget):
 
     def paintEvent(self, _e):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor("#111"))
+        p.fillRect(self.rect(), QColor("#000"))
         if self.img is not None:
             w, h = self.width(), self.height()
             s = min(w / stream.VW, h / stream.VH)
             dw, dh = stream.VW * s, stream.VH * s
             target = QRectF((w - dw) / 2, (h - dh) / 2, dw, dh)
-            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             p.drawImage(target, self.img)
         else:
-            p.setPen(QColor("#888"))
-            p.drawText(self.rect(), Qt.AlignCenter, "Nalepi YouTube link sednice i pritisni Počni")
+            p.setPen(QColor("#8b93a7"))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Nalepi YouTube link sednice i pritisni Počni")
         if self.banner and time.time() < self.banner[2]:
             lines, color, _ = self.banner
             w = self.width()
@@ -95,13 +96,13 @@ class Video(QWidget):
             c = QColor(color)
             c.setAlpha(225)
             p.fillPath(path, c)
-            p.setPen(Qt.white)
-            f = QFont("Segoe UI", 15, QFont.Bold)
+            p.setPen(Qt.GlobalColor.white)
+            f = QFont("Segoe UI", 15, QFont.Weight.Bold)
             p.setFont(f)
-            p.drawText(r.adjusted(14, 6, -14, 0), Qt.AlignLeft | Qt.AlignTop, lines[0])
+            p.drawText(r.adjusted(14, 6, -14, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, lines[0])
             p.setFont(QFont("Segoe UI", 11))
             for i, ln in enumerate(lines[1:]):
-                p.drawText(r.adjusted(14, 36 + 24 * i, -14, 0), Qt.AlignLeft | Qt.AlignTop, ln)
+                p.drawText(r.adjusted(14, 36 + 24 * i, -14, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, ln)
         p.end()
 
 
@@ -110,12 +111,13 @@ class JumpSlider(QSlider):
     jumped = pyqtSignal(int)
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and self.isEnabled():
+        if e.button() == Qt.MouseButton.LeftButton and self.isEnabled():
             opt = QStyleOptionSlider()
             self.initStyleOption(opt)
-            handle = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
-            if not handle.contains(e.pos()):
-                v = QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), e.x(), self.width())
+            handle = self.style().subControlRect(QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderHandle, self)
+            if not handle.contains(e.position().toPoint()):
+                v = QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), int(e.position().x()),
+                                                   self.width())
                 self.setValue(v)
                 self.jumped.emit(v)
                 e.accept()
@@ -158,8 +160,22 @@ class Main(QMainWindow):
     # ---- layout --------------------------------------------------------------------------------
     def _build(self):
         root = QWidget()
+        root.setObjectName("root")
         v = QVBoxLayout(root)
+        v.setContentsMargins(14, 10, 14, 6)
+        v.setSpacing(10)
+        head = QHBoxLayout()
+        title = QLabel("Virtuelni predsednik skupštine")
+        title.setObjectName("appTitle")
+        sub = QLabel("nadzor reda na sednici po Poslovniku Narodne skupštine")
+        sub.setObjectName("appSub")
+        head.addWidget(title)
+        head.addSpacing(10)
+        head.addWidget(sub)
+        head.addStretch(1)
+        v.addLayout(head)
         top = QHBoxLayout()
+        top.setSpacing(8)
         self.url = QLineEdit(self.s.get("last_url", ""))
         self.url.setPlaceholderText("YouTube link (uživo ili snimak sednice)")
         self.start_at = QLineEdit()
@@ -167,6 +183,8 @@ class Main(QMainWindow):
         self.start_at.setFixedWidth(90)
         self.start_at.setToolTip("Samo za snimke: odakle da krene (npr. 1:30:00)")
         self.go = QPushButton("▶ Počni")
+        self.go.setObjectName("primary")
+        self.go.setMinimumWidth(96)
         self.go.clicked.connect(self.toggle)
         self.model = QComboBox()
         from judge import MODELS
@@ -176,18 +194,23 @@ class Main(QMainWindow):
         self.model.setCurrentIndex(max(0, i))
         keyb = QPushButton("API ključ…")
         keyb.clicked.connect(self.ask_key)
+        keyb.setToolTip("Tvoj Claude API ključ (console.anthropic.com → API Keys). Troškovi idu na taj ključ.\n"
+                        "Bez ključa radi samo prepoznavanje govora, govornika i vremena - bez mera i provera.")
         self.report_btn = QPushButton("Izveštaj")
         self.report_btn.setToolTip("Sačuvaj i otvori HTML izveštaj sednice (statistika, mere, retorika, tvrdnje)")
         self.report_btn.clicked.connect(lambda: self.save_report(open_it=True))
         self.tr_btn = QPushButton("Transkript…")
         self.tr_btn.setToolTip("Sačuvaj transkript: tekst (.txt), titlovi (.srt) ili stranica za Word (.html)")
         self.tr_btn.clicked.connect(self.save_transcript_dialog)
-        self.vol = QSlider(Qt.Horizontal)
+        self.vol = QSlider(Qt.Orientation.Horizontal)
         self.vol.setRange(0, 100)
         self.vol.setValue(int(self.s["volume"] * 100))
         self.vol.setFixedWidth(90)
         self.vol.valueChanged.connect(self.set_volume)
-        for w in (QLabel("Link:"), self.url, self.start_at, self.go, QLabel("Sudija:"), self.model, keyb,
+        lbl_link, lbl_judge = QLabel("Link"), QLabel("Sudija")
+        for lb in (lbl_link, lbl_judge):
+            lb.setProperty("muted", True)
+        for w in (lbl_link, self.url, self.start_at, self.go, lbl_judge, self.model, keyb,
                   self.report_btn, self.tr_btn,
                   QLabel("🔊"), self.vol):
             top.addWidget(w)
@@ -196,18 +219,21 @@ class Main(QMainWindow):
         ag = QHBoxLayout()
         self.agenda = QLineEdit()
         self.agenda.setPlaceholderText("Tačka dnevnog reda (popuni ili će je aplikacija prepoznati iz govora)")
-        ag.addWidget(QLabel("Tačka:"))
+        lbl_ag = QLabel("Tačka")
+        lbl_ag.setProperty("muted", True)
+        ag.addWidget(lbl_ag)
         ag.addWidget(self.agenda)
         v.addLayout(ag)
 
-        split = QSplitter(Qt.Horizontal)
+        split = QSplitter(Qt.Orientation.Horizontal)
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         self.video = Video()
-        self.video.setFocusPolicy(Qt.ClickFocus)       # click the video, then ← → / space work
+        self.video.setFocusPolicy(Qt.FocusPolicy.ClickFocus)       # click the video, then ← → / space work
         lv.addWidget(self.video, 1)
         seek_row = QHBoxLayout()
+        seek_row.setContentsMargins(0, 0, 8, 0)
         self.back_btn = QPushButton("⏪ 30 s")
         self.back_btn.clicked.connect(lambda: self.skip(-30))
         self.pause_btn = QPushButton("⏸")
@@ -215,7 +241,7 @@ class Main(QMainWindow):
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.fwd_btn = QPushButton("30 s ⏩")
         self.fwd_btn.clicked.connect(lambda: self.skip(30))
-        self.timeline = JumpSlider(Qt.Horizontal)
+        self.timeline = JumpSlider(Qt.Orientation.Horizontal)
         self.timeline.sliderPressed.connect(lambda: setattr(self, "dragging", True))
         self.timeline.sliderMoved.connect(lambda v: self.time_lbl.setText(f"→ {fmt_time(v)}"))
         self.timeline.sliderReleased.connect(self._timeline_released)
@@ -224,30 +250,32 @@ class Main(QMainWindow):
         self.time_lbl.setFont(QFont("Consolas", 10))
         for w in (self.back_btn, self.pause_btn, self.fwd_btn):
             w.setEnabled(False)
-            w.setFocusPolicy(Qt.NoFocus)
+            w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             seek_row.addWidget(w)
         self.timeline.setEnabled(False)
-        self.timeline.setFocusPolicy(Qt.NoFocus)
+        self.timeline.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.timeline.setToolTip("Prevuci ili klikni da skočiš na deo snimka (← → 10 s, razmak = pauza)")
         seek_row.addWidget(self.timeline, 1)
         seek_row.addWidget(self.time_lbl)
         lv.addLayout(seek_row)
         self.dragging = False
         panel = QWidget()
-        panel.setStyleSheet("background:#1d2330;color:#eee;border-radius:6px")
+        panel.setObjectName("speakerCard")
+        panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         pv = QVBoxLayout(panel)
+        pv.setContentsMargins(16, 12, 16, 12)
         self.sp_name = QLabel("—")
-        self.sp_name.setFont(QFont("Segoe UI", 18, QFont.Bold))
+        self.sp_name.setObjectName("spName")
         self.sp_role = QLabel("")
-        self.sp_role.setStyleSheet("color:#aab")
+        self.sp_role.setObjectName("spRole")
         row = QHBoxLayout()
         self.sp_timer = QLabel("0:00")
-        self.sp_timer.setFont(QFont("Consolas", 22, QFont.Bold))
+        self.sp_timer.setFont(QFont("Consolas", 22, QFont.Weight.Bold))
         self.sp_official = QLabel("")
-        self.sp_official.setFont(QFont("Consolas", 14, QFont.Bold))
+        self.sp_official.setFont(QFont("Consolas", 14, QFont.Weight.Bold))
         self.sp_official.setToolTip("Zvanični tajmer sa ekrana prenosa (preostalo vreme)")
         self.sp_voice = QLabel("")
-        self.sp_voice.setStyleSheet("color:#9cf")
+        self.sp_voice.setObjectName("spVoice")
         self.loud = QProgressBar()
         self.loud.setRange(0, 20)
         self.loud.setTextVisible(True)
@@ -272,7 +300,7 @@ class Main(QMainWindow):
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["Poslanik", "Upozorenja", "Opomene", "Oduzeta reč", "Udaljen",
                                               "Kazna (čl. 114)"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.facts = QTextBrowser()
         self.chair = QTextBrowser()
         self.stats = QTextBrowser()
@@ -283,7 +311,7 @@ class Main(QMainWindow):
                    self.profs):
             tb.setOpenLinks(False)                     # [time] links jump the video there
             tb.anchorClicked.connect(self.on_link)
-        self.transcript.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.transcript.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.transcript.customContextMenuRequested.connect(self.transcript_menu)
         self.transcript.setToolTip("Desni klik na red: proveri tvrdnju na internetu")
         self.tabs.addTab(self.cards, "Mere")
@@ -301,15 +329,65 @@ class Main(QMainWindow):
         self.setCentralWidget(root)
         self.cost_lbl = QLabel("")
         self.statusBar().addPermanentWidget(self.cost_lbl)
+        self.add_tooltips()
         self.set_status("Spremno." + ("" if self.s["api_key"] else
                                       "  Bez API ključa radi samo prepoznavanje govora, govornika i vremena."))
+
+    def _go_state(self, running):
+        self.go.setProperty("running", running)
+        self.go.style().unpolish(self.go)
+        self.go.style().polish(self.go)
+
+    def add_tooltips(self):
+        tips = {
+            self.url: "Link YouTube prenosa ili snimka sednice Narodne skupštine (npr. kanal ParlamentSrbija).",
+            self.go: "Počni / zaustavi praćenje. Na zaustavljanje se izveštaj i transkript snimaju automatski.",
+            self.model: "Claude model koji sudi po Poslovniku. Haiku je najjeftiniji (~10 ¢ na sat sednice);\n"
+                        "Sonnet i Opus su pažljiviji, ali skuplji.",
+            self.vol: "Jačina zvuka prenosa (ne utiče na prepoznavanje govora).",
+            self.agenda: "Tačka dnevnog reda. Koristi se da se proceni da li govornik govori van teme (čl. 106).",
+            self.back_btn: "Nazad 30 sekundi (strelica ← = 10 s). Već ocenjeni delovi se ne kažnjavaju ponovo.",
+            self.pause_btn: "Pauza / nastavak (razmak).",
+            self.fwd_btn: "Napred 30 sekundi (strelica → = 10 s).",
+            self.time_lbl: "Trenutno vreme snimka / ukupno trajanje.",
+            self.sp_name: "Ko trenutno govori. ✓ = potvrđeno (natpis na ekranu ili najava predsedavajućeg);\n"
+                          "♂/♀ = pol iz spiska poslanika ili iz govora. Kad se kasnije prepozna ko je bio\n"
+                          "'Govornik N' ili 'Glas N', sav njegov raniji govor, mere i statistika prelaze na to ime.",
+            self.sp_role: "Uloga i poslanička grupa govornika, i odakle aplikacija zna ko je to.",
+            self.sp_timer: "Koliko dugo govori od kada je dobio reč (prema rokovima iz Poslovnika).",
+            self.sp_voice: "Glas: poklapanje sa glasovnim otiskom govornika i promena glasa.",
+            self.loud: "Glasnoća u odnosu na govornikov uobičajeni glas - visoko = povišen ton/vikanje.",
+            self.video: "Prenos. Klikni na video, pa ← → za premotavanje i razmak za pauzu.",
+            self.cost_lbl: "Potrošnja Claude API-ja u ovoj sesiji (sudija + provere na internetu + profili).",
+        }
+        for w, t in tips.items():
+            w.setToolTip(t)
+        tab_tips = [
+            "Mere koje bi predsedavajući trebalo da izrekne po Poslovniku (upozorenje → opomena →\n"
+            "oduzimanje reči → udaljenje) i novčane kazne po čl. 114.",
+            "Sve izgovoreno, sa vremenom i govornikom. Klik na vreme = skok u snimku.\n"
+            "Desni klik na red: proveri tvrdnju na internetu ili je sam označi kao tačnu/netačnu.",
+            "Zbir po poslaniku: upozorenja, opomene, oduzimanje reči, udaljenje i kazna u % plate.",
+            "Tvrdnje proverene na internetu sa ocenom (tačno … netačno) i izvorima. Laž nije povreda reda,\n"
+            "pa za nju nema mere - samo ocena.",
+            "Šta je stvarni predsedavajući uradio: davanje reči, opomene, oduzimanje reči.",
+            "Stvarni predsedavajući naspram aplikacije: poklapanja, propuštene mere i ocena predsedavajućeg\n"
+            "(100 minus bodovi za svaku neizrečenu meru).",
+            "Ton govora i tehnike manipulacije (napad na ličnost, etiketiranje, relativizacija…) sa citatima,\n"
+            "plus provere šireg konteksta (dvostruki aršini, raniji stavovi). Samo informacija - mere su samo\n"
+            "po Poslovniku.",
+            "Isto po poslaničkim grupama: vreme govora, mere na 10 minuta, kazne, tehnike, netačne tvrdnje.",
+            "Javni profili poslanika koji govore (sa izvorima i datumima) - pozadina za razumevanje konteksta.",
+        ]
+        for i, t in enumerate(tab_tips[:self.tabs.count()]):
+            self.tabs.setTabToolTip(i, t)
 
     # ---- controls --------------------------------------------------------------------------------
     def ask_key(self):
         k, ok = QInputDialog.getText(self, "Claude API ključ",
                                      "Anthropic API ključ (console.anthropic.com → API Keys).\n"
                                      "Čuva se u settings_local.json pored aplikacije.",
-                                     QLineEdit.Password, self.s.get("api_key", ""))
+                                     QLineEdit.EchoMode.Password, self.s.get("api_key", ""))
         if ok:
             self.s["api_key"] = k.strip()
             save_settings(self.s)
@@ -356,6 +434,10 @@ class Main(QMainWindow):
         self.src = src
         self.discipline = Discipline()
         self.tracker = SpeakerTracker(self.s["voice_change_sim"])
+        self.tracker.on_rename = self.on_speaker_renamed
+        self.incidents = []             # every violation the judge reported; measures are derived from these
+        self.tx_items = []              # transcript lines (rebuilt with final names after a rename)
+        self.relabel_pending = False
         self.last_measure = {}          # offender -> (time, card index)
         self.app_measures = []          # (t, offender, measure)
         self.turn_flagged = set()
@@ -417,6 +499,7 @@ class Main(QMainWindow):
         self.running = True
         self.go.setEnabled(True)
         self.go.setText("■ Stani")
+        self._go_state(True)
         kind = "UŽIVO" if src["is_live"] else "snimak"
         live = src["is_live"]
         dur = int(src["duration"] or 0)
@@ -465,7 +548,8 @@ class Main(QMainWindow):
         self.paused = False
         self.pause_btn.setText("⏸")
         self.timeline.setValue(int(t))
-        self.transcript.append(f"<p style='color:#888'><i>── skok na {fmt_time(t)} ──</i></p>")
+        self.tx_items.append({"seek": t})
+        self.transcript.append(self.tx_html(self.tx_items[-1]))
         self._log({"type": "seek", "t": t})
         self._start_player(t)
 
@@ -504,11 +588,11 @@ class Main(QMainWindow):
 
     def keyPressEvent(self, e):
         k = e.key()
-        if k == Qt.Key_Left:
+        if k == Qt.Key.Key_Left:
             self.skip(-10)
-        elif k == Qt.Key_Right:
+        elif k == Qt.Key.Key_Right:
             self.skip(10)
-        elif k == Qt.Key_Space:
+        elif k == Qt.Key.Key_Space:
             self.toggle_pause()
         else:
             super().keyPressEvent(e)
@@ -542,6 +626,7 @@ class Main(QMainWindow):
         self.logf.close()
         self.player = self.asr = self.judge = None
         self.go.setText("▶ Počni")
+        self._go_state(False)
         self.timeline.setEnabled(False)
         for b in (self.back_btn, self.pause_btn, self.fwd_btn):
             b.setEnabled(False)
@@ -607,7 +692,7 @@ class Main(QMainWindow):
                                          f"Govori {fmt_time(el)[2:]}, a dozvoljeno je {fmt_time(lim)[2:]}.",
                                          "", 1.0, t)
             else:
-                self.sp_timer.setStyleSheet("color:#eee")
+                self.sp_timer.setStyleSheet("color:#e6e9ef")
             self.sp_timer.setText(txt)
             if turn is not self.last_turn_obj:
                 self.last_turn_obj = turn
@@ -661,7 +746,7 @@ class Main(QMainWindow):
             self.last_caption_req = time.time()
             ba = QByteArray()
             buf = QBuffer(ba)
-            buf.open(QIODevice.WriteOnly)
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
             self.video.img.save(buf, "JPG", 80)
             self.judge.request_caption(bytes(ba), t)
 
@@ -685,14 +770,14 @@ class Main(QMainWindow):
         if self.judge and not replay:              # already judged before seeking back
             self.judge.add_line(line)
         self.cur_stretch[1] = max(self.cur_stretch[1], seg.t1)
-        color = "#e67e22" if lab.is_chair else ("#5dade2" if not lab.voice_change else "#bb8fce")
         loud = lab.loud_db >= self.s["shout_db"] or (lab.loud_db >= self.s["shout_db"] - 3 and lab.pitch_up >= 25)
         txt = html.escape(seg.latin)
         if loud:
             txt = (f"<b>{txt}</b> <span style='color:#e74c3c'>(GLASNO +{lab.loud_db:.0f} dB"
                    + (f", ton +{lab.pitch_up:.0f} %" if lab.pitch_up >= 15 else "") + ")</span>")
-        self.transcript.append(f"{self.tlink(seg.t0)} <b style='color:{color}'>{html.escape(lab.who)}:</b> {txt}"
-                               + (" <span style='color:#aaa'>(već ocenjeno)</span>" if replay else ""))
+        self.tx_items.append({"t": seg.t0, "who": lab.who, "txt": txt, "replay": replay,
+                              "voice_change": lab.voice_change})
+        self.transcript.append(self.tx_html(self.tx_items[-1]))
         info = lab.chair_info
         if info.get("floor"):
             role, name, limit = info["floor"]
@@ -716,7 +801,7 @@ class Main(QMainWindow):
         act_true = menu.addAction("Označi kao tačno (moja ocena)")
         menu.addSeparator()
         act_copy = menu.addAction("Kopiraj red")
-        chosen = menu.exec_(self.transcript.viewport().mapToGlobal(pos))
+        chosen = menu.exec(self.transcript.viewport().mapToGlobal(pos))
         if chosen == act_copy:
             QApplication.clipboard().setText(sel or line)
         elif chosen == act_check:
@@ -811,7 +896,7 @@ class Main(QMainWindow):
             self.apply_violation(v["offender"].strip(), v["kind"], v["explanation"], v["quote"],
                                  float(v.get("confidence", 0)), t)
         for f in res.get("fact_checks", []):
-            item = {"id": len(self.claims), "t": t, "speaker": self.tracker.canonical(f["speaker"]),
+            item = {"id": len(self.claims), "t": t, "speaker": self.person(f["speaker"]),
                     "claim": f["claim"], "why": f["why"], "status": "queued",
                     "context": " / ".join(self.recent_lines)[-600:]}
             if self.facter and self.facter.submit(item):
@@ -843,33 +928,24 @@ class Main(QMainWindow):
         if ag and not self.agenda.text().strip():
             self.agenda.setText(ag)
 
+    def person(self, name):
+        """Final identity of a label or spelling: 'Govornik 3' -> 'Jovo Bakić' after he is recognised."""
+        name = self.tracker.final_name((name or "").strip())
+        if name.startswith(("Glas ", "Govornik ")) or name == CHAIR:
+            return name
+        return self.tracker.final_name(self.tracker.canonical(name))
+
     def apply_violation(self, offender, kind, explanation, quote, conf, t):
-        offender = self.tracker.canonical(offender) if not offender.startswith("Glas ") else offender
-        label, article, _ = KINDS.get(kind, KINDS["disorder"])
         if self.already_judged(t):
             return                                  # replaying a part that was already judged
-        if offender.startswith("Glas "):
-            # an unidentified voice from the hall: the chair can't sanction someone unknown either
-            if conf >= self.s["min_confidence"]:
-                self.add_card("sumnja", "IZ SALE (nepoznat)", offender, label, article, quote, explanation, t, 0)
+        inc = {"t": t, "offender": self.person(offender), "kind": kind, "explanation": explanation,
+               "quote": quote, "conf": conf}
+        self.incidents.append(inc)
+        fresh = self.rebuild_measures(new=inc)
+        if not fresh:
             return
-        if conf < self.s["min_confidence"]:
-            if conf >= 0.5:
-                self.add_card("sumnja", "SUMNJA (bez mere)", offender, label, article, quote, explanation, t, 0)
-            return
-        last = self.last_measure.get(offender.lower())
-        if last and t - last < COOLDOWN_S and kind != "physical_attack":
-            # same burst: the chair pronounces one measure, not one per sentence
-            self.cards.append(f"<div style='margin-left:24px;color:#999'>↳ {self.tlink(t)} i dalje: {html.escape(label)}"
-                              f" – „{html.escape(quote)}“</div>")
-            return
-        m, label, article, fine = self.discipline.decide(offender, kind)
-        self.last_measure[offender.lower()] = t
-        title = MEASURES[m][0]
-        self.add_card(m, title, offender, label, article, quote, explanation, t, fine)
-        self.app_measures.append({"t": t, "offender": offender, "measure": m, "kind": kind, "label": label,
-                                  "quote": quote})
-        self.refresh_stats()
+        m, title, label, article, fine = fresh
+        offender = inc["offender"]
         self.video.show_banner([f"{title} – {offender}", f"{label} ({article})",
                                 (f"„{quote[:110]}“" if quote else explanation[:120])],
                                MEASURE_COLORS[m])
@@ -879,19 +955,96 @@ class Main(QMainWindow):
         self._log({"type": "measure", "t": t, "offender": offender, "kind": kind, "measure": m,
                    "article": article, "quote": quote, "explanation": explanation, "confidence": conf,
                    "fine_pct": fine})
-        self.refresh_table()
 
-    def add_card(self, m, title, offender, label, article, quote, explanation, t, fine):
+    def rebuild_measures(self, new=None):
+        """Cards, the measure ladder and statistics, replayed from all incidents in time order. Re-run when a
+        speaker is identified, so what 'Govornik 3' / 'Glas 2' did counts for the real MP (his warnings,
+        opomene and fines merge in the right order). Returns the measure of incident `new`, if any."""
+        self.discipline = Discipline()
+        self.app_measures, self.last_measure, cards, fresh = [], {}, [], None
+        min_conf = self.s["min_confidence"]
+        for inc in sorted(self.incidents, key=lambda x: x["t"]):
+            inc["offender"] = off = self.person(inc["offender"])
+            t, kind, quote, expl, conf = inc["t"], inc["kind"], inc["quote"], inc["explanation"], inc["conf"]
+            label, article, _ = KINDS.get(kind, KINDS["disorder"])
+            if not off or off == CHAIR:
+                continue
+            if off.startswith("Glas "):
+                # an unidentified voice from the hall: the chair can't sanction someone unknown either
+                if conf >= min_conf:
+                    cards.append(self.card_html("sumnja", "IZ SALE (nepoznat)", off, label, article, quote, expl,
+                                                t, 0))
+                continue
+            if conf < min_conf:
+                if conf >= 0.5:
+                    cards.append(self.card_html("sumnja", "SUMNJA (bez mere)", off, label, article, quote, expl,
+                                                t, 0))
+                continue
+            last = self.last_measure.get(off.lower())
+            if last is not None and t - last < COOLDOWN_S and kind != "physical_attack":
+                # same burst: the chair pronounces one measure, not one per sentence
+                cards.append(f"<div style='margin-left:24px;color:#999'>↳ {self.tlink(t)} i dalje: "
+                             f"{html.escape(label)} – „{html.escape(quote)}“</div>")
+                continue
+            m, label, article, fine = self.discipline.decide(off, kind)
+            self.last_measure[off.lower()] = t
+            title = MEASURES[m][0]
+            cards.append(self.card_html(m, title, off, label, article, quote, expl, t, fine))
+            self.app_measures.append({"t": t, "offender": off, "measure": m, "kind": kind, "label": label,
+                                      "quote": quote})
+            if inc is new:
+                fresh = (m, title, label, article, fine)
+        self.render(self.cards, "".join(cards))
+        self.refresh_stats()
+        self.refresh_table()
+        return fresh
+
+    def card_html(self, m, title, offender, label, article, quote, explanation, t, fine):
         col = MEASURE_COLORS[m]
         fine_txt = f" · kazna {fine} % osnovne plate" if fine else ""
         q = f"<br><i>„{html.escape(quote)}“</i>" if quote else ""
-        self.cards.append(
-            f"<table width='100%' cellspacing='0' cellpadding='6' style='margin:4px 0'><tr>"
-            f"<td width='6' bgcolor='{col}'></td><td>"
-            f"<b style='color:{col};font-size:13pt'>{html.escape(title)}</b> "
-            f"<b>{html.escape(offender)}</b> {self.tlink(t)}<br>"
-            f"{html.escape(label)} – <span style='color:#666'>{html.escape(article)}</span>{fine_txt}{q}"
-            f"<br><span style='color:#444'>{html.escape(explanation)}</span></td></tr></table>")
+        return (f"<table width='100%' cellspacing='0' cellpadding='6' style='margin:4px 0'><tr>"
+                f"<td width='6' bgcolor='{col}'></td><td>"
+                f"<b style='color:{col};font-size:13pt'>{html.escape(title)}</b> "
+                f"<b>{html.escape(offender)}</b> {self.tlink(t)}<br>"
+                f"{html.escape(label)} – <span style='color:#666'>{html.escape(article)}</span>{fine_txt}{q}"
+                f"<br><span style='color:#444'>{html.escape(explanation)}</span></td></tr></table>")
+
+    # ---- speaker identified later: move everything to the real name -----------------------------------
+    def tx_html(self, it):
+        if "seek" in it:
+            return f"<p style='color:#888'><i>── skok na {fmt_time(it['seek'])} ──</i></p>"
+        who = self.tracker.final_name(it["who"])
+        color = "#e67e22" if who == CHAIR else ("#5dade2" if not it["voice_change"] else "#bb8fce")
+        return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(who)}:</b> {it['txt']}"
+                + (" <span style='color:#aaa'>(već ocenjeno)</span>" if it["replay"] else ""))
+
+    def on_speaker_renamed(self, old, new):
+        self._log({"type": "rename", "old": old, "new": new})
+        self.set_status(f"Prepoznat govornik: {old} → {new} – njegov raniji govor, mere i statistika prebačeni.")
+        if not self.relabel_pending:                # the tracker is mid-update; do it once, right after
+            self.relabel_pending = True
+            QTimer.singleShot(0, self.relabel_all)
+
+    def relabel_all(self):
+        self.relabel_pending = False
+        for lst in (self.rhetoric, self.tones):
+            for x in lst:
+                x["speaker"] = self.person(x["speaker"])
+            lst[:] = [x for x in lst if x["speaker"] != CHAIR]
+        for c in self.claims:
+            c["speaker"] = self.person(c.get("speaker", ""))
+        self.last_context = {self.person(k): v for k, v in self.last_context.items()}
+        for sg in self.segments:
+            sg["who"] = self.tracker.final_name(sg["who"])
+            sg["chair"] = sg["who"] == CHAIR
+        self.rebuild_measures()
+        self.render(self.transcript, "".join(f"<p style='margin:0'>{self.tx_html(it)}</p>" for it in self.tx_items))
+        self.render_rhetoric()
+        self.render_facts()
+        self.groups_dirty = True
+        if self.tracker.turn:
+            self.ask_profile(self.tracker.turn.name)
 
     # ---- statistics / report ------------------------------------------------------------------------
     @staticmethod
@@ -902,7 +1055,7 @@ class Main(QMainWindow):
         sb.setValue(v)
 
     def same_person(self, a, b):
-        ca, cb = self.tracker.canonical(a), self.tracker.canonical(b)
+        ca, cb = self.person(a), self.person(b)
         if ca == cb:
             return True
         sa, sb = ca.split()[-1:], cb.split()[-1:]
@@ -910,10 +1063,10 @@ class Main(QMainWindow):
 
     def refresh_stats(self):
         self.render(self.stats, report.stats_html(self.real_measures, self.app_measures, self.same_person,
-                                                  self.tlink, self.tracker.canonical))
+                                                  self.tlink, self.person))
 
     def render_rhetoric(self):
-        self.render(self.rhet, report.rhetoric_html(self.rhetoric, self.tones, self.tlink, self.tracker.canonical)
+        self.render(self.rhet, report.rhetoric_html(self.rhetoric, self.tones, self.tlink, self.person)
                     + report.context_html(self.claims, self.tlink))
 
     # ---- profiles and wider context ------------------------------------------------------------------
@@ -964,7 +1117,7 @@ class Main(QMainWindow):
     def queue_context_check(self, x, t):
         if not self.facter or not self.s.get("context_checks", True):
             return
-        speaker = self.tracker.canonical(x["speaker"])
+        speaker = self.person(x["speaker"])
         if t - self.last_context.get(speaker, -1e9) < 180:
             return                              # at most one context check per speaker per 3 minutes
         self.last_context[speaker] = t
@@ -1103,8 +1256,8 @@ class Main(QMainWindow):
         doc = report.full_report(
             {"title": self.src["title"], "url": self.s["last_url"], "covered": covered or "–"},
             self.cards.toHtml(),
-            report.stats_html(self.real_measures, self.app_measures, self.same_person, tl, self.tracker.canonical),
-            report.rhetoric_html(self.rhetoric, self.tones, tl, self.tracker.canonical)
+            report.stats_html(self.real_measures, self.app_measures, self.same_person, tl, self.person),
+            report.rhetoric_html(self.rhetoric, self.tones, tl, self.person)
             + report.context_html(self.claims, tl),
             report.facts_html(self.claims, tl) + report.groups_html(self.group_stats())
             + report.profiles_html({k: v for k, v in self.profiles.items() if v}),
@@ -1145,7 +1298,7 @@ class Main(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
+    theme.apply(app)
     w = Main()
     w.show()
     auto = os.environ.get("PRED_AUTOTEST")   # "url|start|seconds|screenshot.png" - for testing
@@ -1162,7 +1315,7 @@ def main():
             w.grab().save(shot)
             w.close()
         QTimer.singleShot(int(float(secs) * 1000), finish)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

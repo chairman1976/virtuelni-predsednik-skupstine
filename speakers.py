@@ -106,12 +106,20 @@ class Labeled:
     gender_conflict: bool = False
 
 
+# Strict matching - mixing two people is worse than splitting one person (a later caption / announcement
+# merges the pieces back, and all their statistics move with them).
+MARGIN = 0.06         # the best voice must beat the second best by this much, else it's ambiguous
+LEARN = 0.08          # a voiceprint learns only from segments matching it by thr + LEARN ...
+MIN_LEARN_S = 2.0     # ... that are at least this long (short embeddings are noisy)
+
+
 def _compatible(g1, g2):
     return g1 is None or g2 is None or g1 == g2
 
 
 class SpeakerTracker:
     def __init__(self, sim_threshold=0.55):
+        self.on_rename = None        # callback(old, new) - the app re-attributes stats
         self.thr = sim_threshold
         self.voices = {CHAIR: Voice(CHAIR)}       # name -> Voice
         self.turn = None
@@ -164,6 +172,8 @@ class SpeakerTracker:
                 tr.name = new
         if self.last_voice[0] == old:
             self.last_voice = (new, self.last_voice[1])
+        if self.on_rename:
+            self.on_rename(old, new)
 
     def start_turn(self, name, role, t, limit=None, source="chair", party="", gender=None):
         name = self.canonical(name)
@@ -228,6 +238,15 @@ class SpeakerTracker:
                     out[nm] = s
         return out
 
+    def _clear_best(self, sims, exclude=()):
+        """(name, sim) of the best matching voice if it is above the threshold AND clearly ahead of the next one."""
+        c = sorted(((s, n) for n, s in sims.items() if n not in exclude), reverse=True)
+        if not c or c[0][0] < self.thr:
+            return None, (c[0][0] if c else -1.0)
+        if len(c) > 1 and c[0][0] - c[1][0] < MARGIN:
+            return None, c[0][0]                 # two voices fit about equally - don't guess
+        return c[0][1], c[0][0]
+
     def _merge_into_chair(self, emb):
         """A voice that says chair phrases is the chair: unnamed clusters ("Glas N", "Govornik N") that match are
         folded into the chair's voice; named voices only get a mark (never renamed to someone else later)."""
@@ -289,7 +308,9 @@ class SpeakerTracker:
             loud = self._loud(chair_v, seg.db)
             if seg.emb is not None:
                 self._merge_into_chair(seg.emb)
-            chair_v.add(seg.emb, seg.db, seg.f0)           # no grammar votes: the chair talks about others
+            cs = sims.get(CHAIR)
+            ok = strong or chair_v.n < 3 or (cs is not None and cs >= self.thr + LEARN)
+            chair_v.add(seg.emb if ok else None, seg.db, seg.f0)   # no grammar votes: the chair talks about others
             chair_v.last_t = seg.t1
             lat = to_latin(seg.text)
             if floor:
@@ -309,10 +330,8 @@ class SpeakerTracker:
                 and not (chair_sim >= self.thr and chair_sim >= max(sims.values(), default=-1.0)):
             role, lim, g, _ = self.pending
             self.pending = None
-            others = {k: s for k, s in sims.items() if k != CHAIR}
-            best = max(others, key=others.get) if others else None
-            if best and others[best] >= self.thr and (not self.voices[best].anon
-                                                      or self._may_take_name(best, seg.t0 - 5)):
+            best, _bs = self._clear_best(sims, exclude=(CHAIR,))
+            if best and (not self.voices[best].anon or self._may_take_name(best, seg.t0 - 5)):
                 nm = best
                 if best.startswith(ANON):
                     nm = f"Govornik {len(self.turns) + 1}"
@@ -325,30 +344,35 @@ class SpeakerTracker:
         if cur is not None and cur.n < 3:
             # still learning the announced speaker's voice: keep the chair's (and wrong-gender) voices out
             others = {k: s for k, s in sims.items() if k not in (CHAIR, cur.name)}
-            ob = max(others, key=others.get) if others else None
-            if chair_sim >= self.thr and chair_sim >= others.get(ob, -1.0):
+            ob, _obs = self._clear_best(others)
+            own = float(np.dot(cur.centroid, seg.emb)) if (cur.centroid is not None and seg.emb is not None) \
+                else None                                       # vs. the first segments we learned
+            if chair_sim >= self.thr and chair_sim >= max(others.values(), default=-1.0):
                 who, sim, change = CHAIR, chair_sim, True
-            elif ob and others[ob] >= self.thr and self._may_take_name(ob, self.turn.since) \
+            elif ob and self._may_take_name(ob, self.turn.since) \
                     and _compatible(self.voices[ob].gender, turn_g) and _compatible(seg_gender, turn_g):
                 # the announced person is a voice we already heard unnamed -> give it the name
                 self._rename(ob, cur.name)
                 cur = self.voices[cur.name]
                 who, sim = cur.name, others[ob]
-            elif ob and others[ob] >= self.thr:
+            elif ob:
                 who, sim, change = ob, others[ob], True                # someone else we know (heckler...)
-            elif not _compatible(seg_gender, turn_g):
-                self.anon_count += 1                                    # wrong gender for the announced name
+            elif not _compatible(seg_gender, turn_g) or (own is not None and own < self.thr):
+                # wrong gender, or a different voice than the one we started learning: not the announced person
+                self.anon_count += 1
                 who, change = f"{ANON}{self.anon_count}", True
             else:
-                who = cur.name
+                who, sim = cur.name, (own if own is not None else 0.0)
         elif sims:
             cur_sim = sims.get(cur.name) if cur else None
-            best = max(sims, key=sims.get)
-            if cur_sim is not None and cur_sim >= self.thr and cur_sim >= sims[best] - 0.05:
+            top = max(sims.values())
+            best, _bs = self._clear_best(sims)
+            if cur_sim is not None and cur_sim >= self.thr and cur_sim >= top - 0.02:
                 who, sim = cur.name, cur_sim
-            elif sims[best] >= self.thr:
+            elif best:
                 who, sim = best, sims[best]
                 change = cur is not None and best != cur.name
+            # else: nobody clearly - becomes a new unknown voice below (never glued to the nearest one)
         if who is None and seg.emb is not None and (cur is not None and cur.n >= 3):
             # a voice nobody knows: heckler, unannounced speaker, or the chair before the first "reč ima"
             self.anon_count += 1
@@ -364,6 +388,23 @@ class SpeakerTracker:
                 self.run = (who, seg.t0)
             elif seg.t1 - self.run[1] >= 12:
                 start = self.run[1]
+                ann = self.turn if (self.turn and self.turn.source != "voice" and self.turn.name != CHAIR) else None
+                av, wv = (self.voices.get(ann.name) if ann else None), self.voices.get(who)
+                if ann and av is not None and wv is not None and av.n <= 2 and start - ann.since < 40 \
+                        and who.startswith(ANON) and not wv.chair_marks \
+                        and _compatible(wv.gender, ann.gender):
+                    # the announced speaker barely has a voiceprint (seeded from a shout / noise) and one new
+                    # voice now talks steadily right after the announcement: that voice IS the announced person
+                    av.centroid, av.n = None, 0
+                    self._rename(who, ann.name)
+                    who = ann.name
+                    self.run, change = None, False
+                    v = self.voice(who)
+                    v.last_t = seg.t1
+                    loud, up = self._loud(v, seg.db), self._pitch_up(v, seg.f0)
+                    v.add(seg.emb, seg.db, seg.f0, gm, gf)
+                    self.last_voice = (who, seg.t1)
+                    return Labeled(who, False, False, loud, sim, info, up, False)
                 if who.startswith(ANON):
                     newname = f"Govornik {len(self.turns) + 1}"
                     self._rename(who, newname)
@@ -376,7 +417,9 @@ class SpeakerTracker:
         v.last_t = seg.t1
         loud = self._loud(v, seg.db)
         up = self._pitch_up(v, seg.f0)
-        v.add(seg.emb, seg.db, seg.f0, gm, gf)
+        learn = seg.emb is not None and (v.n == 0 or (seg.t1 - seg.t0 >= MIN_LEARN_S
+                                                       and (v.n < 3 or sim >= self.thr + LEARN)))
+        v.add(seg.emb if learn else None, seg.db, seg.f0, gm, gf)
         if who != CHAIR:
             self.last_voice = (who, seg.t1)
         mp = names.roster_lookup(who) if not v.anon and who != CHAIR else None

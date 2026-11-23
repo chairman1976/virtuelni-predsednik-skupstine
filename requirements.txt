@@ -5,7 +5,7 @@ nvidia-cublas-cu12      # GPU speech recognition (NVIDIA card); harmless without
 nvidia-cudnn-cu12
 sherpa-onnx>=1.10
 anthropic>=0.75
-PyQt5==5.15.*
+PyQt6>=6.6
 sounddevice
 numpy
 pillow

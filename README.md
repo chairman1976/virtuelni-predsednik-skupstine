@@ -3,7 +3,15 @@
 Watches a session of the National Assembly of Serbia on YouTube (live or recorded) and acts like the chair
 (predsedavajući): it detects breaches of order under the Poslovnik and shows the measure the chair should pronounce.
 
-## Install (Windows 10/11)
+## Download (Windows 10/11) - easiest
+
+Open **Releases** (right side of this page), download `VirtuelniPredsednik-windows.zip`, unzip it anywhere and
+double-click **`VirtuelniPredsednik.exe`**. Everything is inside (Python, GPU speech recognition, ffmpeg, node,
+yt-dlp) - nothing to install. Press **API ključ…** and paste your own Claude API key (see step 3 below).
+Windows may warn about an unknown publisher (the .exe is not code-signed): *More info → Run anyway*.
+If YouTube stops working after a while, run `bin\yt-dlp.exe -U` in the app folder to update yt-dlp.
+
+## Install from source (Windows 10/11)
 
 1. Download this repository (green **Code** button → *Download ZIP*) and unzip it, or `git clone` it.
 2. Double-click **`setup.bat`**. It installs, if missing, Python 3.11, ffmpeg and Node.js (via `winget`), creates
@@ -38,6 +46,14 @@ there. Stretches already judged are not judged or penalized again when you scrol
 | Judge | `judge.py` | Claude reads new transcript lines every ~20 s with the Poslovnik articles 96-116 in a cached system prompt; structured JSON: violations, fact-check claims, real chair actions, agenda item |
 | Measures | `rules.py` | ladder čl. 109-111 (upozorenje -> opomena -> druga opomena -> oduzimanje reči -> udaljenje), fines čl. 114 (10/20/40/50 %, highest only), off-topic and shouting need a warning first, 45 s cooldown per MP |
 
+Hover over any button, field or tab for a short explanation.
+
+**Speakers identified later:** an unannounced voice starts as "Govornik N" (or "Glas N" for heckling from the
+hall). As soon as it is recognised - the on-screen caption, the chair naming them, or Claude from context - all
+of it moves to the real MP: transcript lines, measures (the warning ladder is replayed in time order, so an
+earlier opomena counts toward the next one, and hall heckling becomes a measure), rhetoric, claims and the
+per-group statistics.
+
 Tabs: **Mere** (measures), **Transkript**, **Poslanici** (per-MP tally and fine), **Za proveru** (claims the
 judge flags are checked on the web by `factcheck.py` - Claude + web_search, verdict tačno / uglavnom tačno /
 delimično tačno / netačno / neproverljivo / mišljenje with sources; lying is not a breach of order, so no
@@ -66,9 +82,11 @@ the web_search tool rejects `user_location` country RS.
 Every session is logged to `sessions/*.jsonl`.
 
 ## Notes
-- `app.py` imports ctranslate2 before PyQt5 on purpose (PyQt5's old msvcp140.dll crashes CTranslate2 otherwise).
+- `app.py` imports ctranslate2 before PyQt6 on purpose (an older msvcp140.dll loaded first crashes CTranslate2).
 - Voice model: `models/nemo_en_titanet_small.onnx` (k2-fsa sherpa-onnx release, downloaded on first use). Picked by test on a real
   session: same MP 0.83-0.89 vs chair 0.26-0.36 cosine; the voxceleb models could not tell them apart.
+- Windows build: `python build_exe.py <work_dir>` in a clean venv with `requirements.txt` + `pyinstaller`
+  (recipe `VirtuelniPredsednik.spec`; copies data/, ffmpeg, node, downloads yt-dlp.exe into bin/).
 - `test_offline.py file.wav start_s` runs speech + speaker labelling on a WAV without the UI.
-- Packages: `requirements.txt` (faster-whisper, nvidia-cublas/cudnn-cu12, sherpa-onnx, anthropic, PyQt5,
+- Packages: `requirements.txt` (faster-whisper, nvidia-cublas/cudnn-cu12, sherpa-onnx, anthropic, PyQt6,
   sounddevice, winocr, yt-dlp); external: ffmpeg and node on PATH. `start.bat` uses `.venv` if present.
