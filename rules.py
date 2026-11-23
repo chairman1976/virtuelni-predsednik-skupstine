@@ -106,10 +106,11 @@ class Discipline:
 # ---- chair phrases (matched on Latin, lowercase) ---------------------------------------------
 _ROLE = (r"(?i:narodn[aio]\s+poslani(?:k|ca)|poslani(?:k|ca)|ministar(?:ka)?|predsedni(?:k|ca)\s+poslaničke\s+grupe|"
          r"predstavni(?:k|ca)\s+poslaničke\s+grupe|potpredsedni(?:k|ca)(?:\s+vlade)?|predsedni(?:k|ca)\s+vlade|"
-         r"izvestilac|kolega|koleginica|gospodin|gospođa|ovlašćeni\s+predstavnik\s+predlagača)")
+         r"izvestilac|kolega|koleginica|gospodin|gospođa|ovlašćeni\s+predstavnik\s+predlagača|"
+         r"predstavni(?:k|ca)\s+predlagača|predlagač)")
 NAME = r"([A-ZČĆŠĐŽ][a-zčćšđž]+(?:[ -][A-ZČĆŠĐŽ][a-zčćšđž]+){1,2})"
-RE_FLOOR = re.compile(r"\b(?i:reč|riječ)\s+(?i:ima)[,:]?\s+(?:(" + _ROLE + r")\s+)?" + NAME)
-RE_FLOOR_ALT = re.compile(r"\b(?i:izvolite|izvoli)[,\s]+(?:(" + _ROLE + r")\s+)?" + NAME)
+RE_FLOOR = re.compile(r"\b(?i:reč|riječ)\s+(?i:ima)[,:]?\s+(?:(" + _ROLE + r")[,\s]+)?" + NAME)
+RE_FLOOR_ALT = re.compile(r"\b(?i:izvolite|izvoli)[,\s]+(?:(" + _ROLE + r")[,\s]+)?" + NAME)
 # "... narodni poslanik Ime Prezime ima reč" / "gospodin Prezime ima reč"
 RE_FLOOR_POST = re.compile(r"(?:(" + _ROLE + r")\s+)?" + NAME + r"\s+(?i:ima\s+reč)")
 RE_FLOOR_POST1 = re.compile(r"(" + _ROLE + r")\s+([A-ZČĆŠĐŽ][a-zčćšđž]+)\s+(?i:ima\s+reč)")

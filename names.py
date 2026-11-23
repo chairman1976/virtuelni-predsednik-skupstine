@@ -168,11 +168,14 @@ def find_names(text):
             if w[0].isupper():
                 score += 0.3
             add(i, start, e, score)
-        # ASR misspelt surname ("Milovan Trecu" = Milovan Drecun): exact first name + similar surname
+        # ASR misspelt surname ("Milovan Trecu" = Milovan Drecun), also with a slightly misspelt or cut first
+        # name ("Aleksandr Vuć" = Aleksandar Vučić): first name + similar surname
         if prev and w[:1].isupper() and not INDEX.get(fold(w)):
-            for j, p in INDEX.get(fprev, []):
-                if p != "first":
-                    continue
+            firsts = [(j, p) for j, p in INDEX.get(fprev, []) if p == "first"]
+            if not firsts and prev[:1].isupper() and len(fprev) >= 5:
+                for near in difflib.get_close_matches(fprev, _FIRST_NAMES, n=2, cutoff=0.85):
+                    firsts += [(j, p) for j, p in INDEX.get(near, []) if p == "first"]
+            for j, p in firsts:
                 sur = fold(ROSTER[j]["name"].split(" ", 1)[1])
                 r = difflib.SequenceMatcher(None, fold(w), sur[:len(fold(w)) + 2]).ratio()
                 if r >= 0.6:

@@ -131,6 +131,7 @@ class FactChecker(threading.Thread):
             res = self._check(item)
             if res is not None:
                 res["seconds"] = round(time.time() - t0, 1)
+                res["_src"] = self
                 self.on_result(item["id"], res)
 
     def _check(self, item):

@@ -910,6 +910,8 @@ class Main(QMainWindow):
 
     def on_caption(self, res, t):
         """Claude vision read the caption (fallback when the local OCR finds nothing)."""
+        if res.pop("_src", None) is not self.judge:
+            return                                  # late answer from a stopped session
         self.tracker.set_caption(res.get("name", ""), res.get("party", ""), res.get("role", ""), t)
         self._log({"type": "caption", "src": "claude", "t": t, **res})
         self.update_speaker_panel()
@@ -937,6 +939,8 @@ class Main(QMainWindow):
 
     # ---- verdicts ---------------------------------------------------------------------------------
     def on_result(self, res):
+        if res.pop("_src", None) is not self.judge:
+            return                                  # late answer from a stopped session (a slow local model)
         t = res["_t"]
         for m in res.get("speaker_names", []):
             lab, name = m["label"], m["name"].strip()
@@ -1028,6 +1032,10 @@ class Main(QMainWindow):
             label, article, _ = KINDS.get(kind, KINDS["disorder"])
             if not off or off == CHAIR:
                 continue
+            if kind in ("heckling", "no_floor") and off == self.floor_holder(t):
+                # judged as a voice from the hall, later identified as the speaker himself: nobody heckles
+                # or speaks without the floor in his own turn
+                continue
             if off.startswith("Glas "):
                 # an unidentified voice from the hall: the chair can't sanction someone unknown either
                 if conf >= min_conf:
@@ -1057,6 +1065,15 @@ class Main(QMainWindow):
         self.refresh_stats()
         self.refresh_table()
         return fresh
+
+    def floor_holder(self, t):
+        """Final name of who had the floor at moment t (the last turn that started before t)."""
+        tr = None
+        trk = getattr(self, "tracker", None)
+        for x in (trk.turns if trk else []):
+            if x.since <= t + 1:
+                tr = x
+        return self.person(tr.name) if tr else None
 
     def card_html(self, m, title, offender, label, article, quote, explanation, t, fine):
         col = MEASURE_COLORS[m]
@@ -1230,6 +1247,8 @@ class Main(QMainWindow):
         self.render(self.facts, report.facts_html(self.claims, self.tlink))
 
     def on_fact(self, cid, res):
+        if res.pop("_src", None) is not self.facter:
+            return                                  # late answer from a stopped session
         for c in self.claims:
             if c["id"] == cid:
                 c["result"], c["status"] = res, "done"

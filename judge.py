@@ -374,6 +374,7 @@ class Judge(threading.Thread):
         if res is not None:
             res["_t"] = batch[-1]["t"]
             res["_batch"] = batch
+            res["_src"] = self              # the app drops results of a judge from a stopped session
             self.on_result(res)
             if self.local:
                 self.on_status(f"Lokalni sudija ({self.local.model}): ocenjeno {len(batch)} redova za "
@@ -414,5 +415,6 @@ class Judge(threading.Thread):
         name = res["name"].strip().lower() if ok else None
         # act only when two reads in a row agree (a single read of a ticker or a cut-away is not enough)
         if ok and name == self.last_caption_name:
+            res["_src"] = self
             self.on_caption(res, t)
         self.last_caption_name = name
