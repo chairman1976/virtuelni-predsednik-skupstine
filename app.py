@@ -51,6 +51,17 @@ def mark_unsure(text, words, fmt):
     return text
 
 
+def strip_unsure_marks(x):
+    """The judge sometimes copies the "(?)" uncertainty marks into its quotes - not for display."""
+    if isinstance(x, str):
+        return x.replace("(?)", "")
+    if isinstance(x, list):
+        return [strip_unsure_marks(v) for v in x]
+    if isinstance(x, dict):
+        return {k: (v if k.startswith("_") else strip_unsure_marks(v)) for k, v in x.items()}
+    return x
+
+
 class Bridge(QObject):
     segment = pyqtSignal(object)
     result = pyqtSignal(object)
@@ -995,6 +1006,7 @@ class Main(QMainWindow):
     def on_result(self, res):
         if res.pop("_src", None) is not self.judge:
             return                                  # late answer from a stopped session (a slow local model)
+        res = strip_unsure_marks(res)               # "genije(?)" -> "genije" in quotes, claims, rhetoric
         t = res["_t"]
         for m in res.get("speaker_names", []):
             lab, name = m["label"], m["name"].strip()
