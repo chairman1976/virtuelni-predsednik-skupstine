@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, 
 import names  # noqa: E402
 import profiles as profiles_mod  # noqa: E402
 import report  # noqa: E402
+import local_llm  # noqa: E402
 import theme  # noqa: E402
 import stream  # noqa: E402
 from rules import KINDS, MEASURES, Discipline  # noqa: E402
@@ -190,12 +191,16 @@ class Main(QMainWindow):
         from judge import MODELS
         for mid, label in MODELS:
             self.model.addItem(label, mid)
+        self.model.insertSeparator(self.model.count())
+        for mid, label in local_llm.MODELS:
+            self.model.addItem(f"Lokalno: {label} – besplatno", f"local:{mid}")
+        self.model.addItem("Hibrid: lokalni sudija + Claude provere", f"hybrid:{local_llm.MODELS[0][0]}")
         i = self.model.findData(self.s["judge_model"])
         self.model.setCurrentIndex(max(0, i))
         keyb = QPushButton("API ključ…")
         keyb.clicked.connect(self.ask_key)
         keyb.setToolTip("Tvoj Claude API ključ (console.anthropic.com → API Keys). Troškovi idu na taj ključ.\n"
-                        "Bez ključa radi samo prepoznavanje govora, govornika i vremena - bez mera i provera.")
+                        "Bez ključa sudi lokalni model (Ollama) na ovom računaru - besplatno, ali slabije.")
         self.report_btn = QPushButton("Izveštaj")
         self.report_btn.setToolTip("Sačuvaj i otvori HTML izveštaj sednice (statistika, mere, retorika, tvrdnje)")
         self.report_btn.clicked.connect(lambda: self.save_report(open_it=True))
@@ -334,7 +339,7 @@ class Main(QMainWindow):
         self.statusBar().addPermanentWidget(self.cost_lbl)
         self.add_tooltips()
         self.set_status("Spremno." + ("" if self.s["api_key"] else
-                                      "  Bez API ključa radi samo prepoznavanje govora, govornika i vremena."))
+                                      "  Bez API ključa sudi lokalni model (Ollama) - besplatno, ali slabije."))
 
     def _go_state(self, running):
         self.go.setProperty("running", running)
@@ -345,8 +350,14 @@ class Main(QMainWindow):
         tips = {
             self.url: "Link YouTube prenosa ili snimka sednice Narodne skupštine (npr. kanal ParlamentSrbija).",
             self.go: "Počni / zaustavi praćenje. Na zaustavljanje se izveštaj i transkript snimaju automatski.",
-            self.model: "Claude model koji sudi po Poslovniku. Haiku je najjeftiniji (~10 ¢ na sat sednice);\n"
-                        "Sonnet i Opus su pažljiviji, ali skuplji.",
+            self.model: "Ko sudi po Poslovniku i proverava činjenice.\n"
+                        "Claude (treba API ključ): Haiku je najjeftiniji (~10 ¢ na sat sednice); Sonnet i Opus su\n"
+                        "pažljiviji, ali skuplji.\n"
+                        "Lokalno: model na ovom računaru preko Ollame - bez ključa i besplatno, sve opcije rade, ali\n"
+                        "slabije razume srpski i Poslovnik (više promašaja i lažnih prijava). Pretraga interneta\n"
+                        "ide preko DuckDuckGo-a. Prvi put se model preuzima (3-5 GB).\n"
+                        "Hibrid: lokalni sudija (često, besplatno) + Claude za proveru činjenica i profile.\n"
+                        "Claude model bez ključa automatski prelazi na lokalni.",
             self.vol: "Jačina zvuka prenosa (ne utiče na prepoznavanje govora).",
             self.agenda: "Tačka dnevnog reda. Koristi se da se proceni da li govornik govori van teme (čl. 106).",
             self.back_btn: "Nazad 30 sekundi (strelica ← = 10 s). Već ocenjeni delovi se ne kažnjavaju ponovo.",
@@ -421,14 +432,48 @@ class Main(QMainWindow):
         self.s["judge_model"] = self.model.currentData()
         save_settings(self.s)
         self.go.setEnabled(False)
+        self._local_ok = self.check_local()
+        need = self._local_ok and "local" in local_llm.plan(self.s, True)[:2]
+        model = local_llm.plan(self.s, True)[2]
         self.set_status("Tražim stream (yt-dlp)…")
 
         def work():
             try:
+                if need:
+                    st, _msg = local_llm.status(model)
+                    if st == "not_running":
+                        self.b.status.emit("Pokrećem Ollamu…")
+                        local_llm.start_server()
+                        st, _msg = local_llm.status(model)
+                    if st == "no_model":
+                        st = "ok" if local_llm.pull(model, self.b.status.emit) else st
+                    if st != "ok":
+                        self._local_ok = False
+                        self.b.status.emit(f"Lokalni model nije spreman ({_msg}) - nastavljam bez sudije.")
                 self.b.resolved.emit(stream.resolve(url))
             except Exception as e:
                 self.b.failed.emit(str(e))
         threading.Thread(target=work, daemon=True).start()
+
+    def check_local(self):
+        """Is a local model usable / wanted for this run? Asks before downloading a model."""
+        judge, research, model = local_llm.plan(self.s, True)
+        if "local" not in (judge, research):
+            return True
+        st, msg = local_llm.status(model)
+        if st == "no_ollama":
+            QMessageBox.information(
+                self, "Lokalni model",
+                "Za rad bez API ključa potrebna je Ollama (besplatna): https://ollama.com/download\n\n"
+                "Bez nje (i bez ključa) radi samo prepoznavanje govora, govornika i vremena.")
+            return False
+        if st == "no_model":
+            size = next((lb for m, lb in local_llm.MODELS if m == model), model)
+            ans = QMessageBox.question(self, "Lokalni model",
+                                       f"Preuzeti lokalni model {size}?\nJednom, posle radi bez interneta i "
+                                       "besplatno. Preuzimanje traje nekoliko minuta.")
+            return ans == QMessageBox.StandardButton.Yes
+        return True
 
     def on_failed(self, msg):
         self.go.setEnabled(True)
@@ -474,7 +519,9 @@ class Main(QMainWindow):
                    "url": self.s["last_url"], "model": self.s["judge_model"]})
         self.asr = ASRWorker(self.s["whisper_model"], self.b.segment.emit, self.b.status.emit)
         self.asr.start()
-        if self.s["api_key"]:
+        jb, rb, lm = local_llm.plan(self.s, self._local_ok)
+        self.s["_judge"], self.s["_research"], self.s["_local_model"] = jb, rb, lm
+        if jb:
             from judge import Judge
             from factcheck import FactChecker
             self.judge = Judge(self.s, self.b.result.emit, self.b.caption.emit, self.b.status.emit)
@@ -721,7 +768,8 @@ class Main(QMainWindow):
         if self.judge:
             fc = self.facter.cost if self.facter else 0.0
             n = self.facter.checked if self.facter else 0
-            self.cost_lbl.setText(f"Claude: {self.judge.calls} poziva · {n} provera · ${self.judge.cost + fc:.3f}")
+            who = f"Lokalno ({self.judge.local.model})" if self.judge.local else "Claude"
+            self.cost_lbl.setText(f"{who}: {self.judge.calls} poziva · {n} provera · ${self.judge.cost + fc:.3f}")
             self.judge.agenda = self.agenda.text().strip()
             if turn:
                 self.judge.speaker_info = (f"{turn.name} ({turn.role or 'uloga nepoznata'}"
@@ -745,8 +793,8 @@ class Main(QMainWindow):
         self.seek(self.timeline.value())
 
     def request_caption(self, t, force=False):
-        if not self.judge or self.video.img is None or self.paused:
-            return
+        if not self.judge or self.judge.local or self.video.img is None or self.paused:
+            return                          # the local model has no eyes: the local OCR reads captions
         if time.time() - self.last_local_caption < 90:
             return                          # the local OCR is reading the caption - no need to pay Claude
         gap = time.time() - self.last_caption_req

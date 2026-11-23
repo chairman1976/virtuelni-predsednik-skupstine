@@ -199,6 +199,10 @@ CAPTION_PROMPT = ("This is a frame of a Serbian National Assembly broadcast. Is 
                   "current speaker's name caption.")
 
 
+VERIFY_SCHEMA = {"type": "object", "properties": {"reasoning": {"type": "string"}, "is_breach": {"type": "boolean"}},
+                 "required": ["reasoning", "is_breach"], "additionalProperties": False}
+
+
 def make_client(api_key):
     import anthropic
     kw = {}
@@ -212,7 +216,13 @@ class Judge(threading.Thread):
         super().__init__(daemon=True)
         self.s = settings
         self.on_result, self.on_caption, self.on_status = on_result, on_caption, on_status
-        self.client = make_client(settings["api_key"])
+        self.local = None
+        if settings.get("_judge") == "local":       # Ollama on this PC instead of Claude
+            from local_llm import Ollama
+            self.local = Ollama(settings["_local_model"])
+            self.client = None
+        else:
+            self.client = make_client(settings["api_key"])
         self.model = settings["judge_model"]
         self.effort = settings.get("judge_effort", "low")
         self.lock = threading.Lock()
@@ -295,6 +305,14 @@ class Judge(threading.Thread):
         self.calls += 1
 
     def _call(self, content, schema, system=None, max_tokens=4000):
+        if self.local:
+            if not isinstance(content, str):
+                return None                         # caption images: the local OCR does that
+            res = self.local.json(system, content, schema, max_tokens=min(max_tokens, 3000))
+            self.calls = self.local.calls
+            if res is None:
+                self.on_status("Lokalni model ne odgovara (radi li Ollama?)")
+            return res
         import anthropic
         kw = {}
         if system:
@@ -349,14 +367,41 @@ class Judge(threading.Thread):
         self.last_call = time.time()
         t0 = time.time()
         res = self._call(msg, SCHEMA, system=SYSTEM)
+        if res is not None and self.local:
+            res["violations"] = [v for v in res.get("violations", []) if self._verify_local(batch, v)]
         if res is not None:
             self.sent_claims += [f["claim"] for f in res.get("fact_checks", [])]
         if res is not None:
             res["_t"] = batch[-1]["t"]
             res["_batch"] = batch
             self.on_result(res)
-            self.on_status(f"Claude: ocenjeno {len(batch)} redova za {time.time() - t0:.1f} s  "
-                           f"(ukupno ${self.cost:.3f}, {self.calls} poziva)")
+            if self.local:
+                self.on_status(f"Lokalni sudija ({self.local.model}): ocenjeno {len(batch)} redova za "
+                               f"{time.time() - t0:.1f} s ({self.calls} poziva, besplatno)")
+            else:
+                self.on_status(f"Claude: ocenjeno {len(batch)} redova za {time.time() - t0:.1f} s  "
+                               f"(ukupno ${self.cost:.3f}, {self.calls} poziva)")
+
+    def _verify_local(self, batch, v):
+        """A small local model reports far too much (tested: 43 reports where Claude had 8, almost all at 0.85).
+        A second, narrow question per report keeps only the clear ones (tested: 4 of 43 kept). Same system
+        prompt, so Ollama reuses the cached Poslovnik and the check takes ~5 s."""
+        kind = KINDS.get(v.get("kind"))
+        if not kind:
+            return False
+        q = ("PROVERA JEDNE PRIJAVE. Transkript:\n" + "\n".join(self._fmt(x) for x in batch)
+             + f"\n\nPrijava: {v['offender']} - {v['kind']} ({kind[0]}, {kind[1]})\nCitat: „{v['quote']}“\n\n"
+             "Strogo proveri: da li ovaj citat SAM PO SEBI jasno krši baš navedeni član Poslovnika? Oštra kritika, "
+             "ironija, političke optužbe, čitanje biografija, najava govornika, obraćanje predsedavajućem, "
+             "pozivanje na Poslovnik i greške prepoznavanja govora NISU prekršaj. Ako nisi siguran, odgovor je "
+             "false. reasoning: jedna rečenica.")
+        r = self.local.json(SYSTEM, q, VERIFY_SCHEMA, max_tokens=200)
+        if not (r and r.get("is_breach")):
+            log("local judge dropped:", v["kind"], v["offender"], v["quote"][:60])
+            return False
+        v["confidence"] = min(v.get("confidence", 0.6), 0.75)        # a local verdict is never "certain"
+        v["explanation"] = v.get("explanation", "") + " (lokalni model)"
+        return True
 
     def _caption(self, jpeg, t):
         content = [

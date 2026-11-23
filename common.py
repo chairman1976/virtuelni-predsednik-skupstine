@@ -53,6 +53,7 @@ DEFAULTS = {
     "volume": 0.8,
     "last_url": "",
     "chime": True,
+    "local_model": "qwen2.5:7b",   # Ollama model used without a key / in local and hybrid mode
 }
 
 
@@ -72,7 +73,7 @@ def load_settings():
 
 def save_settings(s):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(s, f, ensure_ascii=False, indent=2)
+        json.dump({k: v for k, v in s.items() if not k.startswith("_")}, f, ensure_ascii=False, indent=2)
 
 
 _CYR = {

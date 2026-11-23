@@ -27,6 +27,22 @@ Name captions are read with Windows OCR (Serbian Latin if installed, otherwise E
 HTTPS and Python reports certificate errors, export its root certificate, append it to certifi's bundle and point
 the environment variable `PRED_CA_BUNDLE` at that file.
 
+### Without an API key: local model (free)
+
+Every option also works without a Claude key, with a model running on your own PC:
+
+1. Install **Ollama** (free): https://ollama.com/download (or `winget install Ollama.Ollama`).
+2. In the app pick **Lokalno: Qwen 2.5 7B** in the *Sudija* list (a Claude model without a key switches to
+   the local one automatically). On the first start the app offers to download the model (3-5 GB, once).
+
+It judges breaches, analyses rhetoric and tone, recognises the chair from context, fact-checks claims (it searches
+DuckDuckGo itself and reads the top pages) and builds MP profiles - for free, with nothing sent to Anthropic.
+It is weaker than Claude: a small model understands Serbian and the Poslovnik worse, so expect more missed and
+more false reports, and fact checks / profiles are less reliable. Name captions on screen are read by Windows OCR
+only (no Claude vision fallback). It needs ~5 GB of graphics memory next to Whisper; with less, Ollama moves part
+of the model to the CPU and gets slower. **Hibrid** = the local judge for the frequent, cheap part plus Claude
+(with a key) for fact checks and profiles.
+
 ## Use
 
 Start: double-click `start.bat`, paste a YouTube link, press **Počni**. For recordings you can set a start

@@ -88,7 +88,12 @@ def web_tool(model, uses=4):
 class FactChecker(threading.Thread):
     def __init__(self, settings, on_result, on_status, session_date=""):
         super().__init__(daemon=True)
-        self.client = make_client(settings["api_key"])
+        self.local = None
+        if settings.get("_research") == "local":
+            from local_llm import Ollama
+            self.local = Ollama(settings["_local_model"])
+        else:
+            self.client = make_client(settings["api_key"])
         self.model = settings.get("fact_model") or settings["judge_model"]
         self.on_result, self.on_status = on_result, on_status
         self.session_date = session_date
@@ -147,6 +152,16 @@ class FactChecker(threading.Thread):
         return self._run(item, SYSTEM, SCHEMA, prompt)
 
     def _run(self, item, system, schema, prompt):
+        if self.local:
+            from local_llm import research
+            out, searches = research(self.local, system, prompt, schema)
+            if out is None:
+                self.on_status("Provera činjenica (lokalno): model nije odgovorio.")
+                return None
+            out["searches"] = searches
+            out["explanation"] = out.get("explanation", "") + " (lokalni model)"
+            self.checked += 1
+            return out
         import anthropic
         msgs = [{"role": "user", "content": prompt}]
         searches = 0

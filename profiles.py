@@ -88,7 +88,12 @@ class ProfileBuilder(threading.Thread):
 
     def __init__(self, settings, on_done, on_status):
         super().__init__(daemon=True)
-        self.client = make_client(settings["api_key"])
+        self.local = None
+        if settings.get("_research") == "local":
+            from local_llm import Ollama
+            self.local = Ollama(settings["_local_model"])
+        else:
+            self.client = make_client(settings["api_key"])
         self.model = settings.get("fact_model") or settings["judge_model"]
         self.on_done, self.on_status = on_done, on_status
         self.q = queue.Queue()
@@ -124,6 +129,13 @@ class ProfileBuilder(threading.Thread):
                 self.on_done(name, prof)
 
     def build(self, name, hint=""):
+        if self.local:
+            from local_llm import research
+            out, _n = research(self.local, SYSTEM, f"Napravi profil: {name}. {hint}".strip(), SCHEMA,
+                               n_queries=4, read_pages=4, max_tokens=3500)
+            if out:
+                out["summary"] = out.get("summary", "") + " (lokalni model - proveri izvore)"
+            return out
         import anthropic
         msgs = [{"role": "user", "content": f"Napravi profil: {name}. {hint}".strip()}]
         try:
