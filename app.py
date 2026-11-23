@@ -780,6 +780,10 @@ class Main(QMainWindow):
                                            + (f", vremensko ograničenje {turn.limit} s" if turn.limit else "")
                                            + (f", zvanični tajmer pokazuje {fmt_time(self.official_timer)[2:]}"
                                               if self.official_timer is not None else ""))
+        if self.asr:
+            hint = [turn.name] if turn and not re.match(r"(Govornik|Glas) \d", turn.name) else []
+            hint += [self.tracker.chair.person] if self.tracker.chair.person else []
+            self.asr.hint_names = hint
         if self.asr and self.asr.last_end and t - self.asr.last_end > 25:
             self.set_status(f"{fmt_time(t)} · transkript kasni {t - self.asr.last_end:.0f} s (model se učitava "
                             "ili GPU ne stiže)")

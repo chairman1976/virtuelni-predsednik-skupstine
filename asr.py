@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from common import MODELS, log, to_latin
+import asr_fix
+from common import MODELS, fold_text, log, to_latin
 
 SR = 16000
 MODEL_URL = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
              "nemo_en_titanet_small.onnx")      # sic: "recongition" is the real release tag
-PROMPT = "Народна скупштина Републике Србије. Реч има народни посланик. Поштовани председниче, даме и господо."
 HALLUCINATIONS = re.compile(r"titlov|prevod|subtit|hvala (?:na|što ste) gled|hvala što pratite|продолжение|"
                             r"sledeći video|pretplat|lajk|amara\.org", re.I)
 
@@ -113,6 +113,7 @@ class ASRWorker(threading.Thread):
         self.buf = np.zeros(0, dtype=np.float32)
         self.buf_t0 = None
         self.prev_text = ""
+        self.hint_names = []  # names likely said now (speaker, chair) - set by the app, steer Whisper's spelling
         self.running = True
         self.abort = False
         self.lag = 0.0
@@ -236,9 +237,10 @@ class ASRWorker(threading.Thread):
 
     def _transcribe(self, chunk, c_t0, gen):
         t_start = time.time()
+        prompt = asr_fix.prompt(self.hint_names, self.prev_text)
         segs, _ = self.model.transcribe(
             chunk, language="sr", beam_size=2, vad_filter=True, condition_on_previous_text=False,
-            initial_prompt=PROMPT + " " + self.prev_text[-200:], word_timestamps=True,
+            initial_prompt=prompt, word_timestamps=True,
             # threshold below the 0.5 default: quieter voices from the hall (heckling) are kept
             vad_parameters={"min_silence_duration_ms": 400, "threshold": 0.35})
         out = []
@@ -246,6 +248,9 @@ class ASRWorker(threading.Thread):
             text = s.text.strip()
             if not text or HALLUCINATIONS.search(to_latin(text)):
                 continue
+            ft = fold_text(text)
+            if len(ft) > 12 and ft in fold_text(prompt):
+                continue                      # Whisper repeated its prompt over silence
             if s.no_speech_prob > 0.6 and s.avg_logprob < -0.9:
                 continue
             for p0, p1, ptext in self._pieces(s):
@@ -259,7 +264,8 @@ class ASRWorker(threading.Thread):
                     except Exception as e:
                         log("embed:", e)
                 f0 = pitch_hz(a) if len(a) >= SR else None
-                out.append(Segment(c_t0 + p0, c_t0 + p1, ptext, to_latin(ptext), rms_db(a), emb, f0=f0))
+                lat = asr_fix.fix(to_latin(ptext))          # "imate rečo" -> "imate reč", "poslannik" ...
+                out.append(Segment(c_t0 + p0, c_t0 + p1, lat, lat, rms_db(a), emb, f0=f0))
         if gen != self.gen:
             return                            # user seeked while this chunk was being transcribed
         for seg in out:
