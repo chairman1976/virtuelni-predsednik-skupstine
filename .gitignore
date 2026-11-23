@@ -1,0 +1,6 @@
+settings_local.json
+sessions/
+models/*.onnx
+__pycache__/
+.venv/
+*.part

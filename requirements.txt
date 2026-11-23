@@ -1,0 +1,14 @@
+# Python 3.10-3.12 on Windows 10/11 (3.11 tested)
+faster-whisper>=1.2
+ctranslate2>=4.5
+nvidia-cublas-cu12      # GPU speech recognition (NVIDIA card); harmless without one
+nvidia-cudnn-cu12
+sherpa-onnx>=1.10
+anthropic>=0.75
+PyQt5==5.15.*
+sounddevice
+numpy
+pillow
+winocr
+yt-dlp
+certifi
