@@ -220,7 +220,7 @@ class ASRWorker(threading.Thread):
         min_len are merged into a neighbour - too short to tell voices apart."""
         words = [w for w in (s.words or []) if w.word.strip()]
         if len(words) < 2:
-            return [(s.start, s.end, s.text.strip())]
+            return [None]
         groups = [[words[0]]]
         for prev, w in zip(words, words[1:]):
             if w.start - prev.end >= gap:
@@ -233,7 +233,36 @@ class ASRWorker(threading.Thread):
                 merged[-1] = merged[-1] + g
             else:
                 merged.append(g)
-        return [(g[0].start, g[-1].end, "".join(w.word for w in g).strip()) for g in merged]
+        return merged
+
+    def _voice_split(self, chunk, g, depth=0, min_len=1.2, differ=0.45):
+        """Whisper sometimes glues two people into one sentence with no pause ("Pa ima lista govornika,
+        genij. Reč ima predlagač ..." = a heckler + the chair; voiceprints 0.20 vs 0.87). Try splitting at a few
+        word boundaries (sentence ends and the longest gaps first); split where the two sides clearly sound
+        like different people. Same-person halves score 0.75-0.9 here, different people below 0.47."""
+        if self.embed is None or len(g) < 4 or g[-1].end - g[0].start < 2 * min_len or depth > 1:
+            return [g]
+        cands = []
+        for k in range(1, len(g)):
+            if g[k - 1].end - g[0].start < min_len or g[-1].end - g[k].start < min_len:
+                continue
+            punct = g[k - 1].word.strip()[-1:] in ".?!,"
+            cands.append((punct, g[k].start - g[k - 1].end, k))
+        best = None
+        for _p, _gap, k in sorted(cands, reverse=True)[:4]:
+            try:
+                left = self.embed(chunk[int(g[0].start * SR):int(g[k - 1].end * SR)])
+                right = self.embed(chunk[int(g[k].start * SR):int(g[-1].end * SR)])
+            except Exception as e:
+                log("embed:", e)
+                return [g]
+            sim = float(np.dot(left, right))
+            if best is None or sim < best[0]:
+                best = (sim, k)
+        if best is None or best[0] >= differ:
+            return [g]
+        k = best[1]
+        return self._voice_split(chunk, g[:k], depth + 1) + self._voice_split(chunk, g[k:], depth + 1)
 
     def _transcribe(self, chunk, c_t0, gen):
         t_start = time.time()
@@ -253,7 +282,14 @@ class ASRWorker(threading.Thread):
                 continue                      # Whisper repeated its prompt over silence
             if s.no_speech_prob > 0.6 and s.avg_logprob < -0.9:
                 continue
-            for p0, p1, ptext in self._pieces(s):
+            pieces = []
+            for g in self._pieces(s):
+                if g is None:
+                    pieces.append((s.start, s.end, text))
+                else:
+                    pieces += [(h[0].start, h[-1].end, "".join(w.word for w in h).strip())
+                               for h in self._voice_split(chunk, g)]
+            for p0, p1, ptext in pieces:
                 a = chunk[int(p0 * SR):int(p1 * SR)]
                 if len(a) < SR // 4:
                     continue
