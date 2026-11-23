@@ -44,6 +44,13 @@ MEASURE_COLORS = {"upozorenje": "#c98a00", "opomena": "#d35400", "opomena2": "#c
 COOLDOWN_S = 45
 
 
+def mark_unsure(text, words, fmt):
+    """Wrap each word Whisper was unsure of (first occurrence) with fmt, e.g. "{}(?)" for the judge."""
+    for w in dict.fromkeys(words):
+        text = re.sub(r"(?<![\w])" + re.escape(w) + r"(?![\w])", lambda m: fmt.format(m.group(0)), text, count=1)
+    return text
+
+
 class Bridge(QObject):
     segment = pyqtSignal(object)
     result = pyqtSignal(object)
@@ -655,10 +662,25 @@ class Main(QMainWindow):
             self.toggle_poslovnik()
         self.poslovnik.show_article(no)
 
+    def dismiss_incident(self, i, dismissed=True):
+        """'✕ nije prekršaj' on a card: the user says it was not a breach (e.g. a misheard word). The measure
+        is withdrawn, the ladder replayed without it, and the chair's score no longer counts it as missed."""
+        if not (0 <= i < len(self.incidents)):
+            return
+        inc = self.incidents[i]
+        inc["dismissed"] = dismissed
+        self._log({"type": "dismiss" if dismissed else "undismiss", "t": inc["t"], "offender": inc["offender"],
+                   "kind": inc["kind"], "quote": inc["quote"]})
+        self.rebuild_measures()
+        self.set_status(("Mera poništena: " if dismissed else "Mera vraćena: ") + f"{inc['offender']} – "
+                        f"„{inc['quote'][:60]}“")
+
     def on_link(self, url):
         s = url.toString()
         if s.startswith("posl:"):
             self.open_article(int(s[5:]))
+        elif s.startswith(("dis:", "undis:")):
+            self.dismiss_incident(int(s.split(":")[1]), s.startswith("dis:"))
         elif s.startswith("http"):
             QDesktopServices.openUrl(url)
         elif s.startswith("t:"):
@@ -839,7 +861,9 @@ class Main(QMainWindow):
         if not self.asr or seg.gen != self.asr.gen:
             return                                  # from before a seek
         lab = self.tracker.label(seg)
-        line = {"t": seg.t0, "who": lab.who, "text": seg.latin, "loud_db": round(lab.loud_db, 1),
+        unsure = seg.unsure or []
+        line = {"t": seg.t0, "who": lab.who, "text": mark_unsure(seg.latin, unsure, "{}(?)"),
+                "loud_db": round(lab.loud_db, 1),
                 "shout_db": self.s["shout_db"], "voice_change": lab.voice_change,
                 "pitch_up": round(lab.pitch_up)}
         self._log({"type": "seg", "t0": seg.t0, "t1": seg.t1, "who": lab.who, "text": seg.text,
@@ -855,7 +879,9 @@ class Main(QMainWindow):
             self.judge.add_line(line)
         self.cur_stretch[1] = max(self.cur_stretch[1], seg.t1)
         loud = lab.loud_db >= self.s["shout_db"] or (lab.loud_db >= self.s["shout_db"] - 3 and lab.pitch_up >= 25)
-        txt = html.escape(seg.latin)
+        txt = (html.escape(mark_unsure(seg.latin, unsure, "{}"))
+               .replace("", "<span style='color:#999' title='nesigurno prepoznato - možda pogrešno čuto'>")
+               .replace("", "</span>"))
         if loud:
             txt = (f"<b>{txt}</b> <span style='color:#e74c3c'>(GLASNO +{lab.loud_db:.0f} dB"
                    + (f", ton +{lab.pitch_up:.0f} %" if lab.pitch_up >= 15 else "") + ")</span>")
@@ -1032,7 +1058,7 @@ class Main(QMainWindow):
         if self.already_judged(t):
             return                                  # replaying a part that was already judged
         inc = {"t": t, "offender": self.person(offender), "kind": kind, "explanation": explanation,
-               "quote": quote, "conf": conf}
+               "quote": quote, "conf": conf, "id": len(self.incidents)}
         self.incidents.append(inc)
         fresh = self.rebuild_measures(new=inc)
         if not fresh:
@@ -1062,6 +1088,12 @@ class Main(QMainWindow):
             label, article, _ = KINDS.get(kind, KINDS["disorder"])
             if not off or off == CHAIR:
                 continue
+            if inc.get("dismissed"):
+                # the user heard it differently (e.g. a misheard word): no measure, ladder not advanced
+                cards.append(f"<div style='margin:4px 0 4px 12px;color:#999'>✕ {self.tlink(t)} poništeno: "
+                             f"{html.escape(off)} – {html.escape(label)} – „{html.escape(quote)}“ "
+                             f"<a href='undis:{inc['id']}'>vrati</a></div>")
+                continue
             if kind in ("heckling", "no_floor") and off == self.floor_holder(t):
                 # judged as a voice from the hall, later identified as the speaker himself: nobody heckles
                 # or speaks without the floor in his own turn
@@ -1070,12 +1102,12 @@ class Main(QMainWindow):
                 # an unidentified voice from the hall: the chair can't sanction someone unknown either
                 if conf >= min_conf:
                     cards.append(self.card_html("sumnja", "IZ SALE (nepoznat)", off, label, article, quote, expl,
-                                                t, 0))
+                                                t, 0, inc.get("id")))
                 continue
             if conf < min_conf:
                 if conf >= 0.5:
                     cards.append(self.card_html("sumnja", "SUMNJA (bez mere)", off, label, article, quote, expl,
-                                                t, 0))
+                                                t, 0, inc.get("id")))
                 continue
             last = self.last_measure.get(off.lower())
             if last is not None and t - last < COOLDOWN_S and kind != "physical_attack":
@@ -1086,7 +1118,7 @@ class Main(QMainWindow):
             m, label, article, fine = self.discipline.decide(off, kind)
             self.last_measure[off.lower()] = t
             title = MEASURES[m][0]
-            cards.append(self.card_html(m, title, off, label, article, quote, expl, t, fine))
+            cards.append(self.card_html(m, title, off, label, article, quote, expl, t, fine, inc.get("id")))
             self.app_measures.append({"t": t, "offender": off, "measure": m, "kind": kind, "label": label,
                                       "quote": quote})
             if inc is new:
@@ -1111,14 +1143,16 @@ class Main(QMainWindow):
         return re.sub(r"čl\. (\d+)", lambda m: f"<a href='posl:{m.group(1)}'>čl. {m.group(1)}</a>",
                       html.escape(article))
 
-    def card_html(self, m, title, offender, label, article, quote, explanation, t, fine):
+    def card_html(self, m, title, offender, label, article, quote, explanation, t, fine, inc_id=None):
         col = MEASURE_COLORS[m]
+        undo = (f" &nbsp; <a href='dis:{inc_id}' style='color:#999;font-size:9pt'>✕ nije prekršaj</a>"
+                if inc_id is not None else "")
         fine_txt = f" · kazna {fine} % osnovne plate" if fine else ""
         q = f"<br><i>„{html.escape(quote)}“</i>" if quote else ""
         return (f"<table width='100%' cellspacing='0' cellpadding='6' style='margin:4px 0'><tr>"
                 f"<td width='6' bgcolor='{col}'></td><td>"
                 f"<b style='color:{col};font-size:13pt'>{html.escape(title)}</b> "
-                f"<b>{html.escape(offender)}</b> {self.tlink(t)}<br>"
+                f"<b>{html.escape(offender)}</b> {self.tlink(t)}{undo}<br>"
                 f"{html.escape(label)} – <span style='color:#666'>{self.article_links(article)}</span>{fine_txt}{q}"
                 f"<br><span style='color:#444'>{html.escape(explanation)}</span></td></tr></table>")
 

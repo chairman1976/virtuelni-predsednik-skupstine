@@ -102,6 +102,14 @@ HOW TO JUDGE
   "claim": one self-contained sentence in Serbian Latin that makes sense without the transcript (who did what,
   where), cleaned of recognition errors.
 - The transcript has recognition errors: judge the evident meaning, but only report what the words support.
+- A word marked "(?)" was heard uncertainly by the speech recognition and may be a mishearing of a similar,
+  harmless word (e.g. "svinje" for "sve nje", "lopovi" for "lopte"). Never report insult, profanity, private
+  life or threats when the offending word is marked (?) or does not fit the sentence and context - then either
+  skip it or report it with confidence at most 0.5 (shown as suspicion, no measure). The same applies to an
+  unmarked insulting word that breaks the grammar or sense of its sentence - the recognizer often mishears
+  confidently: "vi ste lopovi kandidate predložili" ("lopovi" does not fit; probably "loše"/"lepo") ->
+  confidence at most 0.5. An insult is certain only when the sentence is coherent with it ("vi ste lopovi i
+  to cela Srbija zna").
   Never report a line that is garbled or not real Serbian (e.g. "Ebna sөmde", isolated syllables) - there is
   nothing to judge in it.
 - Confidence: 0.9+ the words clearly are the breach (e.g. "lopovi ste", "ti, u trećem redu"); 0.7-0.85 a

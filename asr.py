@@ -18,6 +18,9 @@ HALLUCINATIONS = re.compile(r"titlov|prevod|subtit|hvala (?:na|što ste) gled|hv
                             r"sledeći video|pretplat|lajk|amara\.org", re.I)
 
 
+UNSURE = 0.6            # word probability below which a word counts as possibly misheard (~2 % of words)
+
+
 @dataclass
 class Segment:
     t0: float
@@ -28,6 +31,7 @@ class Segment:
     emb: object = None  # np.ndarray voice embedding or None
     gen: int = 0        # seek generation it belongs to
     f0: float = None    # median voice pitch, Hz
+    unsure: list = None  # words Whisper was unsure of (probability < UNSURE) - may be misheard
 
 
 class VoiceEmbedder:
@@ -285,11 +289,12 @@ class ASRWorker(threading.Thread):
             pieces = []
             for g in self._pieces(s):
                 if g is None:
-                    pieces.append((s.start, s.end, text))
+                    pieces.append((s.start, s.end, text, []))
                 else:
-                    pieces += [(h[0].start, h[-1].end, "".join(w.word for w in h).strip())
+                    pieces += [(h[0].start, h[-1].end, "".join(w.word for w in h).strip(),
+                                [w.word.strip() for w in h if (w.probability or 0) < UNSURE])
                                for h in self._voice_split(chunk, g)]
-            for p0, p1, ptext in pieces:
+            for p0, p1, ptext, unsure in pieces:
                 a = chunk[int(p0 * SR):int(p1 * SR)]
                 if len(a) < SR // 4:
                     continue
@@ -301,7 +306,9 @@ class ASRWorker(threading.Thread):
                         log("embed:", e)
                 f0 = pitch_hz(a) if len(a) >= SR else None
                 lat = asr_fix.fix(to_latin(ptext))          # "imate rečo" -> "imate reč", "poslannik" ...
-                out.append(Segment(c_t0 + p0, c_t0 + p1, lat, lat, rms_db(a), emb, f0=f0))
+                unsure = [u for u in (asr_fix.fix(to_latin(w)).strip(".,!?;:…\"'") for w in unsure)
+                          if len(u) >= 4]
+                out.append(Segment(c_t0 + p0, c_t0 + p1, lat, lat, rms_db(a), emb, f0=f0, unsure=unsure))
         if gen != self.gen:
             return                            # user seeked while this chunk was being transcribed
         for seg in out:
