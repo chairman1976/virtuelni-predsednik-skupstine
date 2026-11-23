@@ -19,6 +19,19 @@ VERDICT_COLORS = {"tačno": "#1e8449", "uglavnom tačno": "#52a447", "delimično
                   "netačno": "#c0392b", "neproverljivo": "#7f8c8d", "mišljenje": "#7f8c8d"}
 SEARCH_PRICE = 0.01  # $ per web search
 
+LEGAL = {
+    "type": "object",
+    "properties": {
+        "actionable": {"type": "string", "enum": ["ne", "moguće", "verovatno"]},
+        "grounds": {"type": "string"},
+        "immunity": {"type": "string", "enum": ["štiti ga", "verovatno štiti", "sporno", "ne štiti",
+                                                 "nije poslanik"]},
+        "explanation": {"type": "string"},
+    },
+    "required": ["actionable", "grounds", "immunity", "explanation"],
+    "additionalProperties": False,
+}
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -28,8 +41,9 @@ SCHEMA = {
             "type": "object",
             "properties": {"title": {"type": "string"}, "url": {"type": "string"}},
             "required": ["title", "url"], "additionalProperties": False}},
+        "legal": LEGAL,
     },
-    "required": ["verdict", "explanation", "sources"],
+    "required": ["verdict", "explanation", "sources", "legal"],
     "additionalProperties": False,
 }
 
@@ -44,7 +58,21 @@ reputable media and Serbian fact-checking sites (Istinomer, Raskrikavanje, FakeN
 Verdict: "tačno" / "uglavnom tačno" / "delimično tačno" / "netačno"; "neproverljivo" if reliable data can't be
 found; "mišljenje" if it is a value judgement, not a checkable fact. Judge the claim as of the session date.
 explanation: 2-4 sentences in Serbian, Latin script, neutral and concrete (give the real numbers and dates).
-sources: the pages you actually used (title + URL), most important first, max 4."""
+sources: the pages you actually used (title + URL), most important first, max 4.
+legal: could the claim (if false, or as stated about a person) ground a lawsuit or a criminal complaint, on what
+grounds, and would the speaker's parliamentary immunity protect them. If the claim is true, an opinion, or about
+no identifiable person/organisation: actionable "ne", grounds "".
+LEGAL NOTE (information for viewers, not legal advice; Serbian law as of the session date):
+- Defamation (kleveta) is NOT a criminal offence in Serbia since 2012; a false factual claim that harms someone's
+  honour or reputation can ground a CIVIL claim for non-pecuniary damages (Zakon o obligacionim odnosima).
+- Insult (uvreda, Krivični zakonik čl. 170) is still a criminal offence (private prosecution, fine).
+- Other offences can be committed by words: threats (ugrožavanje sigurnosti, KZ čl. 138), incitement to
+  national, racial or religious hatred (KZ čl. 317), spreading false news that causes panic (KZ čl. 343).
+- Immunity of MPs (Ustav čl. 103): an MP cannot be held criminally or otherwise liable for an opinion expressed
+  or a vote cast in performing the MP's function (imunitet neodgovornosti) - in practice this covers what is
+  said in the plenary; whether it covers false factual claims or threats (not "opinions") is disputed. It does
+  not protect ministers or other non-MP speakers, nor statements made outside the MP's function.
+Fill "legal" only with what the claim itself supports; be careful and attributed, never accuse."""
 
 
 CONTEXT_VERDICTS = ["dvostruki aršini", "nedosledno ranijim izjavama", "suprotno zapisniku sednice",
@@ -58,8 +86,9 @@ CONTEXT_SCHEMA = {
         "verdict": {"type": "string", "enum": CONTEXT_VERDICTS},
         "explanation": {"type": "string"},
         "sources": SCHEMA["properties"]["sources"],
+        "legal": LEGAL,
     },
-    "required": ["verdict", "explanation", "sources"],
+    "required": ["verdict", "explanation", "sources", "legal"],
     "additionalProperties": False,
 }
 CONTEXT_SYSTEM = """You give viewers of a live Serbian parliament broadcast the wider context of an accusation or
@@ -75,7 +104,20 @@ Check, with web searches and the material given:
 - missing context that changes the meaning.
 Be strictly even-handed: the same standard for every party; if the accusation is supported, say
 "potkrepljeno". Every factual point needs a source (or "zapisnik sednice" for the session record). No labels of
-your own - attribute ("prema Istinomeru..."). explanation: 2-4 sentences, Serbian Latin, concrete."""
+your own - attribute ("prema Istinomeru..."). explanation: 2-4 sentences, Serbian Latin, concrete.
+legal: could the accusation ground a lawsuit (e.g. a false factual claim about a named person) and does immunity
+protect the speaker.
+LEGAL NOTE (information for viewers, not legal advice; Serbian law as of the session date):
+- Defamation (kleveta) is NOT a criminal offence in Serbia since 2012; a false factual claim that harms someone's
+  honour or reputation can ground a CIVIL claim for non-pecuniary damages (Zakon o obligacionim odnosima).
+- Insult (uvreda, Krivični zakonik čl. 170) is still a criminal offence (private prosecution, fine).
+- Other offences can be committed by words: threats (ugrožavanje sigurnosti, KZ čl. 138), incitement to
+  national, racial or religious hatred (KZ čl. 317), spreading false news that causes panic (KZ čl. 343).
+- Immunity of MPs (Ustav čl. 103): an MP cannot be held criminally or otherwise liable for an opinion expressed
+  or a vote cast in performing the MP's function (imunitet neodgovornosti) - in practice this covers what is
+  said in the plenary; whether it covers false factual claims or threats (not "opinions") is disputed. It does
+  not protect ministers or other non-MP speakers, nor statements made outside the MP's function.
+Fill "legal" only with what the claim itself supports; be careful and attributed, never accuse."""
 
 
 def web_tool(model, uses=4):

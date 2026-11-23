@@ -27,6 +27,22 @@ th{background:#eef} .big{font-size:20pt;font-weight:bold} .muted{color:#888}
 </style>"""
 
 
+
+LEGAL_COLORS = {"verovatno": "#c0392b", "moguće": "#d4a017"}
+
+
+def legal_html(legal):
+    """Line under a fact / context check: lawsuit or criminal complaint possible? immunity? (information only)"""
+    if not legal or legal.get("actionable", "ne") == "ne":
+        return ""
+    col = LEGAL_COLORS.get(legal["actionable"], "#555")
+    imm = legal.get("immunity", "")
+    grounds = " – " + esc(legal["grounds"]) if legal.get("grounds") else ""
+    imm_txt = " · <b>imunitet: " + esc(imm) + "</b>" if imm else ""
+    return (f"<br><span style='color:{col}'><b>⚖ Pravno: tužba/prijava {esc(legal['actionable'])}</b>{grounds}"
+            f"</span>{imm_txt}<br><span class='muted'>{esc(legal.get('explanation', ''))} "
+            "(informacija, ne pravni savet)</span>")
+
 def esc(x):
     return html.escape(str(x))
 
@@ -198,6 +214,7 @@ def facts_html(claims, tlink):
             note = (" <span class='muted'>(ocena korisnika)</span>" if res.get("user") else ""
                     if res.get("searches") else " <span class='muted'>(nije provereno na internetu)</span>")
             out.append(f"<b style='color:{col}'>{esc(res['verdict'].upper())}</b>{note} – {esc(res['explanation'])}")
+            out.append(legal_html(res.get("legal")))
             if res.get("sources"):
                 out.append("<br><span class='muted'>Izvori:</span> " + " · ".join(
                     f"<a href='{esc(s['url'])}'>{esc(s['title'][:70])}</a>" for s in res["sources"][:4]))
@@ -322,6 +339,7 @@ def context_html(items, tlink):
         if res:
             col = CONTEXT_COLORS.get(res["verdict"], "#444")
             out.append(f"<b style='color:{col}'>{esc(res['verdict'].upper())}</b> – {esc(res['explanation'])}")
+            out.append(legal_html(res.get("legal")))
             if res.get("sources"):
                 out.append("<br><span class='muted'>Izvori:</span> " + " · ".join(
                     f"<a href='{esc(s['url'])}'>{esc(s['title'][:70])}</a>" for s in res["sources"][:5]))

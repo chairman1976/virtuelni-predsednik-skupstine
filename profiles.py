@@ -55,6 +55,8 @@ Rules:
   description is common, report it as "X ga je opisao kao ..." with the source.
 - Include things relevant to judging consistency in debate: notable public claims (including ones fact-checkers
   rated), positions on key topics, past statements, conflicts with own party line.
+- Also publicised slips, mispronunciations or catch-phrases that the media or social networks made into a joke
+  (others may imitate them in the debate to mock the person) - attributed like everything else.
 - Only this person; if you are not sure a source is about the same person, leave it out.
 - Everything in Serbian, Latin script. summary: 2-3 sentences. Max 6 positions, 6 statements, 5 controversies."""
 
@@ -80,6 +82,19 @@ def short(profile, limit=900):
         bits.append(f"- izjava ({s['date']}, {s['source_title']}): {s['statement']}")
     for c in profile.get("controversies", [])[:3]:
         bits.append(f"- prema {c['reported_by']} ({c['date']}): {c['what']}")
+    return "\n".join(bits)[:limit]
+
+
+def brief(profile, limit=420):
+    """Very short text about another MP in the debate - what others allude to: publicised slips, controversies,
+    much-quoted statements (e.g. her "sumljam" instead of "sumnjam" that became a joke - and is then imitated)."""
+    if not profile:
+        return ""
+    bits = [f"{profile['name']} ({profile.get('party_and_group', '')[:60]})"]
+    for c in profile.get("controversies", [])[:3]:
+        bits.append(f"- prema {c['reported_by']}: {c['what']}")
+    for s in profile.get("notable_statements", [])[:2]:
+        bits.append(f"- izjava: {s['statement']}")
     return "\n".join(bits)[:limit]
 
 

@@ -757,6 +757,7 @@ class Main(QMainWindow):
                 if self.judge:
                     prof = self.profiles.get(turn.name)
                     self.judge.speaker_profile = profiles_mod.short(prof, 700) if prof else ""
+                    self.judge.others_profile = self.others_profile(turn.name)
                     self.judge.session_record = self.session_record()
                 self.request_caption(t, force=True)
                 if self.judge:
@@ -962,7 +963,9 @@ class Main(QMainWindow):
         for v in res.get("violations", []):
             if v["offender"].strip() in ("", CHAIR):
                 continue
-            self.apply_violation(v["offender"].strip(), v["kind"], v["explanation"], v["quote"],
+            note = (v.get("legal_note") or "").strip()
+            expl = v["explanation"] + (f" ⚖ {note}" if note else "")
+            self.apply_violation(v["offender"].strip(), v["kind"], expl, v["quote"],
                                  float(v.get("confidence", 0)), t)
         for f in res.get("fact_checks", []):
             item = {"id": len(self.claims), "t": t, "speaker": self.person(f["speaker"]),
@@ -1195,6 +1198,23 @@ class Main(QMainWindow):
         self.render(self.profs, report.profiles_html(self.profiles))
         if self.judge and self.tracker.turn and self.tracker.turn.name == name:
             self.judge.speaker_profile = profiles_mod.short(prof, 700)
+        if self.judge and self.tracker.turn:
+            self.judge.others_profile = self.others_profile(self.tracker.turn.name)
+
+    def others_profile(self, current, n=5):
+        """Short profiles of the other MPs who spoke recently in this debate (newest first), so the judge can
+        see allusions to them - e.g. imitating an MP's publicised slip."""
+        seen, out = {current}, []
+        for tr in reversed(self.tracker.turns):
+            nm = self.person(tr.name)
+            if nm in seen or not names.roster_lookup(nm):
+                continue
+            seen.add(nm)
+            if self.profiles.get(nm):
+                out.append(profiles_mod.brief(self.profiles[nm]))
+            if len(out) >= n:
+                break
+        return "\n".join(out)
 
     def session_record(self):
         """What happened in this session so far, per group - evidence for 'who brought bad blood' claims."""

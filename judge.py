@@ -119,7 +119,19 @@ RHETORIC (information for viewers, never a breach by itself) - for every speaker
 {TECHNIQUE_DOC}
   Only clear instances; ordinary political argument is not manipulation. Explanation: one short sentence,
   Serbian Latin, saying why this quote is that technique.
+  Mockery also covers imitating someone: deliberately repeating another person's publicised slip,
+  mispronunciation, accent or catch-phrase (e.g. stressing "sumLJam" instead of "sumnjam" when an MP in the
+  debate is known for saying "sumljam" - see DRUGI POSLANICI and the session so far). Then name the person
+  mocked in the explanation ("ismeva poslanicu X imitirajući njen izgovor ..."). Work out who is the target
+  from the profiles and the debate - do not assume it is the chair. Deliberate mispronunciations in the
+  transcript are kept as spoken; do not treat them as transcription errors when they echo such a slip.
 - explanation: one short sentence in Serbian (Latin script), as the chair would say it in the hall.
+- legal_note: "" unless the words could also be a criminal offence or ground a lawsuit outside the hall (insult
+  - KZ čl. 170; a false factual claim harming a named person's reputation - civil damages, defamation is not a
+  crime since 2012; threats - KZ čl. 138; hate speech - KZ čl. 317). Then one short sentence in Serbian naming the
+  ground AND whether parliamentary immunity (Ustav čl. 103: no liability for an opinion expressed in performing
+  the MP's function) would protect the speaker - for MPs speaking in the plenary usually yes, disputed for
+  threats/false facts; ministers and guests are not MPs. Information only, never decides the measure.
 - PREDSEDAVAJUĆI is the person running the sitting (the Speaker or a deputy speaker). MPs addressing the chair
   ("gospodine predsedavajući", "predsedniče Čupiću", "potpredsednice Petrović") is NOT direct address to another
   MP and not a breach.
@@ -140,8 +152,9 @@ SCHEMA = {
                 "quote": {"type": "string"},
                 "explanation": {"type": "string"},
                 "confidence": {"type": "number"},
+                "legal_note": {"type": "string"},
             },
-            "required": ["kind", "offender", "quote", "explanation", "confidence"],
+            "required": ["kind", "offender", "quote", "explanation", "confidence", "legal_note"],
             "additionalProperties": False}},
         "fact_checks": {"type": "array", "items": {
             "type": "object",
@@ -240,6 +253,7 @@ class Judge(threading.Thread):
         self.last_caption_name = None
         self.sent_claims = []
         self.speaker_profile = ""
+        self.others_profile = ""        # other MPs in this debate: allusions, imitation, mocking
         self.session_record = ""
 
     # ---- inputs (from the GUI thread) -------------------------------------------------------
@@ -357,6 +371,8 @@ class Judge(threading.Thread):
                f"TRENUTNI GOVORNIK: {self.speaker_info or 'nepoznat'}\n\n"
                + (f"JAVNI PROFIL GOVORNIKA (pozadina, sa izvorima):\n{self.speaker_profile}\n\n"
                   if self.speaker_profile else "")
+               + (f"DRUGI POSLANICI U OVOJ RASPRAVI (aluzije, imitacija, ismevanje):\n{self.others_profile}\n\n"
+                  if self.others_profile else "")
                + (f"ZAPISNIK OVE SEDNICE DO SADA (po grupama):\n{self.session_record}\n\n"
                   if self.session_record else "")
                + "KONTEKST (već ocenjeno, ne prijavljuj ponovo):\n"
