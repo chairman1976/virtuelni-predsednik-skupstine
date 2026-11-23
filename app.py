@@ -207,6 +207,9 @@ class Main(QMainWindow):
         self.tr_btn = QPushButton("Transkript…")
         self.tr_btn.setToolTip("Sačuvaj transkript: tekst (.txt), titlovi (.srt) ili stranica za Word (.html)")
         self.tr_btn.clicked.connect(self.save_transcript_dialog)
+        self.posl_btn = QPushButton("Poslovnik")
+        self.posl_btn.clicked.connect(self.toggle_poslovnik)
+        self.poslovnik = None
         self.vol = QSlider(Qt.Orientation.Horizontal)
         self.vol.setRange(0, 100)
         self.vol.setValue(int(self.s["volume"] * 100))
@@ -216,7 +219,7 @@ class Main(QMainWindow):
         for lb in (lbl_link, lbl_judge):
             lb.setProperty("muted", True)
         for w in (lbl_link, self.url, self.start_at, self.go, lbl_judge, self.model, keyb,
-                  self.report_btn, self.tr_btn,
+                  self.report_btn, self.tr_btn, self.posl_btn,
                   QLabel("🔊"), self.vol):
             top.addWidget(w)
         top.setStretch(1, 1)
@@ -350,6 +353,8 @@ class Main(QMainWindow):
         tips = {
             self.url: "Link YouTube prenosa ili snimka sednice Narodne skupštine (npr. kanal ParlamentSrbija).",
             self.go: "Počni / zaustavi praćenje. Na zaustavljanje se izveštaj i transkript snimaju automatski.",
+            self.posl_btn: "Otvori ceo Poslovnik Narodne skupštine u bočnom panelu (pretraga, sadržaj, skok na član).\n"
+                           "Klik na član na kartici mere (npr. čl. 107) otvara baš taj član.",
             self.model: "Ko sudi po Poslovniku i proverava činjenice.\n"
                         "Claude (treba API ključ): Haiku je najjeftiniji (~10 ¢ na sat sednice); Sonnet i Opus su\n"
                         "pažljiviji, ali skuplji.\n"
@@ -636,9 +641,25 @@ class Main(QMainWindow):
             self.pause_btn.setText("▶")
             self.set_status(f"Pauza na {fmt_time(self.paused_at)}")
 
+    def toggle_poslovnik(self):
+        if self.poslovnik is None:
+            from poslovnik_view import PoslovnikDock
+            self.poslovnik = PoslovnikDock(self)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.poslovnik)
+            QTimer.singleShot(0, lambda: self.resizeDocks([self.poslovnik], [500], Qt.Orientation.Horizontal))
+            return
+        self.poslovnik.setVisible(not self.poslovnik.isVisible())
+
+    def open_article(self, no):
+        if self.poslovnik is None:
+            self.toggle_poslovnik()
+        self.poslovnik.show_article(no)
+
     def on_link(self, url):
         s = url.toString()
-        if s.startswith("http"):
+        if s.startswith("posl:"):
+            self.open_article(int(s[5:]))
+        elif s.startswith("http"):
             QDesktopServices.openUrl(url)
         elif s.startswith("t:"):
             self.seek(float(s[2:]) - 3)        # land just before the moment
@@ -1084,6 +1105,12 @@ class Main(QMainWindow):
                 tr = x
         return self.person(tr.name) if tr else None
 
+    @staticmethod
+    def article_links(article):
+        """'čl. 107 st. 2, čl. 109 al. 5' -> each article a link that opens it in the Poslovnik panel."""
+        return re.sub(r"čl\. (\d+)", lambda m: f"<a href='posl:{m.group(1)}'>čl. {m.group(1)}</a>",
+                      html.escape(article))
+
     def card_html(self, m, title, offender, label, article, quote, explanation, t, fine):
         col = MEASURE_COLORS[m]
         fine_txt = f" · kazna {fine} % osnovne plate" if fine else ""
@@ -1092,7 +1119,7 @@ class Main(QMainWindow):
                 f"<td width='6' bgcolor='{col}'></td><td>"
                 f"<b style='color:{col};font-size:13pt'>{html.escape(title)}</b> "
                 f"<b>{html.escape(offender)}</b> {self.tlink(t)}<br>"
-                f"{html.escape(label)} – <span style='color:#666'>{html.escape(article)}</span>{fine_txt}{q}"
+                f"{html.escape(label)} – <span style='color:#666'>{self.article_links(article)}</span>{fine_txt}{q}"
                 f"<br><span style='color:#444'>{html.escape(explanation)}</span></td></tr></table>")
 
     # ---- speaker identified later: move everything to the real name -----------------------------------
