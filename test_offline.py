@@ -17,6 +17,7 @@ w = wave.open(wav)
 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
 st = load_settings()
 tracker = SpeakerTracker(st["voice_change_sim"])
+tracker.chair.on_change.append(lambda o, n, t, src: print(f"   >> PREDSEDAVA [{fmt_time(t)}]: {o} -> {n} ({src})", flush=True))
 done = threading.Event()
 
 

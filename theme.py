@@ -45,6 +45,7 @@ QWidget#speakerCard QLabel {{ background: transparent; }}
 QLabel#spName {{ font-size: 20pt; font-weight: 600; color: white; }}
 QLabel#spRole {{ color: {MUTED}; }}
 QLabel#spVoice {{ color: #8fc1ff; }}
+QLabel#spChair {{ color: #f5b971; font-weight: 600; }}
 
 QTabWidget::pane {{ border: 1px solid {LINE}; border-radius: 12px; background: {PAPER}; top: -1px; }}
 QTabBar {{ qproperty-drawBase: 0; background: transparent; }}

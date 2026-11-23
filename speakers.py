@@ -18,6 +18,7 @@ import numpy as np
 
 import names
 from common import to_latin
+from chair import ChairTracker
 from rules import LIMITS, limit_key, parse_chair
 
 CHAIR = "Predsedavajući"
@@ -127,6 +128,8 @@ class SpeakerTracker:
         self.anon_count = 0
         self.run = None                           # (voice, since) of an unannounced voice still talking
         self.last_voice = (None, -1e9)            # last non-chair voice heard, and when
+        self.last_any = (None, -1e9)              # last voice of anyone, the chair included
+        self.chair = ChairTracker()               # WHO is chairing (the role is CHAIR)
         self.pending = None                       # floor given without a name: (role, limit, gender, t)
         self.aliases = {}                         # old label -> new name (Govornik 2 -> Jovo Bakić)
 
@@ -194,6 +197,9 @@ class SpeakerTracker:
         if not name:
             return
         name = self.canonical(name)
+        who, when = self.last_any
+        if who == CHAIR and t - when < 6 and self.chair.caption(name, t):
+            return                                  # the chair's own caption: who is chairing, not a new turn
         mp = names.roster_lookup(name)
         gender = gender or (mp["gender"] if mp else None)
         lv, lt = self.last_voice
@@ -237,6 +243,17 @@ class SpeakerTracker:
                 if s is not None:
                     out[nm] = s
         return out
+
+    def _new_chair_voice(self, t):
+        """Someone else took the chair. The previous chair keeps the voiceprint learned while chairing (under
+        their own name, if known - so they are recognised when they later speak as an MP); the chair's voice is
+        learned anew. Never one voiceprint for two people."""
+        old_person = self.chair.voice_changed(t)
+        v = self.voices[CHAIR]
+        if old_person and old_person not in self.voices and v.centroid is not None:
+            v.name, v.chair_marks = old_person, 0
+            self.voices[old_person] = v
+        self.voices[CHAIR] = Voice(CHAIR)
 
     def _clear_best(self, sims, exclude=()):
         """(name, sim) of the best matching voice if it is above the threshold AND clearly ahead of the next one."""
@@ -309,9 +326,15 @@ class SpeakerTracker:
             if seg.emb is not None:
                 self._merge_into_chair(seg.emb)
             cs = sims.get(CHAIR)
+            if strong and chair_v.n >= 5 and cs is not None and cs < self.thr - 0.15:
+                # a clearly different voice is running the sitting: the chair changed hands
+                self._new_chair_voice(seg.t0)
+                chair_v = self.voices[CHAIR]
             ok = strong or chair_v.n < 3 or (cs is not None and cs >= self.thr + LEARN)
             chair_v.add(seg.emb if ok else None, seg.db, seg.f0)   # no grammar votes: the chair talks about others
             chair_v.last_t = seg.t1
+            self.last_any = (CHAIR, seg.t1)
+            self.chair.observe(seg.text, True, seg.t0)
             lat = to_latin(seg.text)
             if floor:
                 nm, role, lim, g = floor
@@ -415,6 +438,9 @@ class SpeakerTracker:
             self.run = None
         v = self.voice(who)
         v.last_t = seg.t1
+        self.last_any = (who, seg.t1)
+        if who != CHAIR:
+            self.chair.observe(seg.text, False, seg.t0)
         loud = self._loud(v, seg.db)
         up = self._pitch_up(v, seg.f0)
         learn = seg.emb is not None and (v.n == 0 or (seg.t1 - seg.t0 >= MIN_LEARN_S

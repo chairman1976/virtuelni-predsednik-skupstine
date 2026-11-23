@@ -287,6 +287,9 @@ class Main(QMainWindow):
         row.addSpacing(16)
         row.addWidget(self.sp_voice, 1)
         row.addWidget(self.loud)
+        self.sp_chair = QLabel("Predsedava: nije još prepoznat")
+        self.sp_chair.setObjectName("spChair")
+        pv.addWidget(self.sp_chair)
         pv.addWidget(self.sp_name)
         pv.addWidget(self.sp_role)
         pv.addLayout(row)
@@ -359,6 +362,9 @@ class Main(QMainWindow):
             self.loud: "Glasnoća u odnosu na govornikov uobičajeni glas - visoko = povišen ton/vikanje.",
             self.video: "Prenos. Klikni na video, pa ← → za premotavanje i razmak za pauzu.",
             self.cost_lbl: "Potrošnja Claude API-ja u ovoj sesiji (sudija + provere na internetu + profili).",
+            self.sp_chair: "Ko predsedava: predsednik ili potpredsednik Narodne skupštine. Prepoznaje se po natpisu\n"
+                           "na ekranu, po tome kako mu se poslanici obraćaju ('predsedniče Čupiću'), po najavi\n"
+                           "promene i po glasu - kad drugi glas počne da vodi sednicu, predsedavajući se promenio.",
         }
         for w, t in tips.items():
             w.setToolTip(t)
@@ -435,6 +441,8 @@ class Main(QMainWindow):
         self.discipline = Discipline()
         self.tracker = SpeakerTracker(self.s["voice_change_sim"])
         self.tracker.on_rename = self.on_speaker_renamed
+        self.tracker.chair.on_change.append(self.on_chair_change)
+        self.sp_chair.setText("Predsedava: nije još prepoznat")
         self.incidents = []             # every violation the judge reported; measures are derived from these
         self.tx_items = []              # transcript lines (rebuilt with final names after a rename)
         self.relabel_pending = False
@@ -890,6 +898,9 @@ class Main(QMainWindow):
                 continue                            # a bare first name ("Aleksandar") identifies nobody
             if name and lab in self.tracker.voices and lab != CHAIR and self.tracker.voices[lab].anon:
                 self.tracker._rename(lab, self.tracker.canonical(name))
+        cp = (res.get("chair_person") or "").strip()
+        if cp and not re.match(r"(?i)(nepoznat|unknown|predsedavaj)", cp):
+            self.tracker.chair.from_judge(cp, t)
         for v in res.get("violations", []):
             if v["offender"].strip() in ("", CHAIR):
                 continue
@@ -1016,8 +1027,32 @@ class Main(QMainWindow):
             return f"<p style='color:#888'><i>── skok na {fmt_time(it['seek'])} ──</i></p>"
         who = self.tracker.final_name(it["who"])
         color = "#e67e22" if who == CHAIR else ("#5dade2" if not it["voice_change"] else "#bb8fce")
-        return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(who)}:</b> {it['txt']}"
+        shown = self.chair_label(it["t"]) if who == CHAIR else who
+        return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(shown)}:</b> {it['txt']}"
                 + (" <span style='color:#aaa'>(već ocenjeno)</span>" if it["replay"] else ""))
+
+    def chair_label(self, t):
+        p = self.tracker.chair.at(t)
+        return f"{CHAIR} ({p})" if p else CHAIR
+
+    def on_chair_change(self, old, new, t, source):
+        """The person chairing became known or changed (context, caption, voice, Claude)."""
+        ch = self.tracker.chair
+        self._log({"type": "chair_person", "t": t, "old": old, "new": new, "source": source})
+        if new:
+            txt = f"Predsedava: {new} – {ch.role(new)}"
+            self.set_status(f"{txt} (prepoznato: {source}).")
+        else:
+            txt = "Predsedava: promena – čekam ko je preuzeo" if old else "Predsedava: nije još prepoznat"
+            self.set_status(f"Predsedavajući se promenio ({source}): {old or '?'} više ne vodi sednicu.")
+        self.sp_chair.setText(txt)
+        self.chair.append(f"<p style='color:#2c3e50'><b>{self.tlink(t)} "
+                          f"{html.escape(txt)}</b> <span style='color:#888'>({html.escape(source)})</span></p>")
+        if self.judge:
+            self.judge.chair_info = ch.label() if new else "promenio se, nije još prepoznat"
+        if not self.relabel_pending:            # earlier chair lines of this stretch now get the name
+            self.relabel_pending = True
+            QTimer.singleShot(0, self.relabel_all)
 
     def on_speaker_renamed(self, old, new):
         self._log({"type": "rename", "old": old, "new": new})
@@ -1039,6 +1074,7 @@ class Main(QMainWindow):
             sg["who"] = self.tracker.final_name(sg["who"])
             sg["chair"] = sg["who"] == CHAIR
         self.rebuild_measures()
+        self.refresh_stats()
         self.render(self.transcript, "".join(f"<p style='margin:0'>{self.tx_html(it)}</p>" for it in self.tx_items))
         self.render_rhetoric()
         self.render_facts()
@@ -1063,7 +1099,7 @@ class Main(QMainWindow):
 
     def refresh_stats(self):
         self.render(self.stats, report.stats_html(self.real_measures, self.app_measures, self.same_person,
-                                                  self.tlink, self.person))
+                                                  self.tlink, self.person, self.tracker.chair.at))
 
     def render_rhetoric(self):
         self.render(self.rhet, report.rhetoric_html(self.rhetoric, self.tones, self.tlink, self.person)
@@ -1159,7 +1195,8 @@ class Main(QMainWindow):
                 "made": datetime.datetime.now().strftime("%d.%m.%Y %H:%M")}
 
     def save_transcript(self, path):
-        segs = getattr(self, "segments", [])
+        segs = [dict(sg, who=self.chair_label(sg["t0"])) if self.tracker.final_name(sg["who"]) == CHAIR else sg
+                for sg in getattr(self, "segments", [])]
         name = self.tracker.final_name
         if path.lower().endswith(".srt"):
             text = report.transcript_srt(segs, name)
@@ -1256,7 +1293,8 @@ class Main(QMainWindow):
         doc = report.full_report(
             {"title": self.src["title"], "url": self.s["last_url"], "covered": covered or "–"},
             self.cards.toHtml(),
-            report.stats_html(self.real_measures, self.app_measures, self.same_person, tl, self.person),
+            report.stats_html(self.real_measures, self.app_measures, self.same_person, tl, self.person,
+                              self.tracker.chair.at),
             report.rhetoric_html(self.rhetoric, self.tones, tl, self.person)
             + report.context_html(self.claims, tl),
             report.facts_html(self.claims, tl) + report.groups_html(self.group_stats())

@@ -65,7 +65,7 @@ def match(real, app, same_person):
     return pairs, real_only, app_only
 
 
-def stats_html(real, app, same_person, tlink, canon):
+def stats_html(real, app, same_person, tlink, canon, chair_at=None):
     pairs, real_only, app_only = match(real, app, same_person)
     out = [CSS, "<h2>Stvarni predsedavajući ↔ aplikacija</h2>"]
     if not real and not app:
@@ -90,6 +90,23 @@ def stats_html(real, app, same_person, tlink, canon):
                "aplikacija izrekla po Poslovniku, a predsedavajući nije. "
                f"{len(real_only)} mera je predsedavajući izrekao, a aplikacija nije (ne oduzima bodove). "
                "Ocena je mišljenje aplikacije i zavisi od tačnosti transkripta.</span></td></tr></table>")
+    if chair_at:
+        people = {}
+        for x in real:
+            people.setdefault(chair_at(x["t"]) or "nije prepoznat", {"real": 0, "missed": 0, "minus": 0})["real"] += 1
+        for x in app_only:
+            r = people.setdefault(chair_at(x["t"]) or "nije prepoznat", {"real": 0, "missed": 0, "minus": 0})
+            r["missed"] += 1
+            r["minus"] += CHAIR_PENALTY.get(FAMILY.get(x["measure"], ""), 0)
+        if people and set(people) != {"nije prepoznat"}:
+            out.append("<h3>Po predsedavajućem</h3><table><tr><th>Predsedavao</th><th>Izrekao mera</th>"
+                       "<th>Propustio</th><th>Ocena</th></tr>")
+            for who, r in sorted(people.items(), key=lambda kv: kv[1]["minus"]):
+                sc = max(0, 100 - r["minus"])
+                c = "#1e8449" if sc >= 85 else "#d4a017" if sc >= 60 else "#c0392b"
+                out.append(f"<tr><td>{esc(who)}</td><td>{r['real']}</td><td>{r['missed']}</td>"
+                           f"<td style='color:{c}'><b>{sc}/100</b></td></tr>")
+            out.append("</table>")
     # by type
     out.append("<h3>Po vrsti mere</h3><table><tr><th>Mera</th><th>Predsedavajući</th><th>Aplikacija</th>"
                "<th>Poklapanja</th></tr>")

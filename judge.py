@@ -120,6 +120,11 @@ RHETORIC (information for viewers, never a breach by itself) - for every speaker
   Only clear instances; ordinary political argument is not manipulation. Explanation: one short sentence,
   Serbian Latin, saying why this quote is that technique.
 - explanation: one short sentence in Serbian (Latin script), as the chair would say it in the hall.
+- PREDSEDAVAJUĆI is the person running the sitting (the Speaker or a deputy speaker). MPs addressing the chair
+  ("gospodine predsedavajući", "predsedniče Čupiću", "potpredsednice Petrović") is NOT direct address to another
+  MP and not a breach.
+- chair_person: full name of whoever is chairing if the text makes it clear (MPs address the chair by name, the
+  chair says who takes over, "predsedavanje preuzima ..."); otherwise "". Never guess.
 - JAVNI PROFIL and ZAPISNIK are background for understanding spin and the situation (who blames whom, who is
   consistent). Use them for tone/rhetoric; measures are decided only by what is said in NOVO under the rules.
 """
@@ -161,13 +166,14 @@ SCHEMA = {
                            "technique": {"type": "string", "enum": list(TECHNIQUES)},
                            "quote": {"type": "string"}, "explanation": {"type": "string"}},
             "required": ["speaker", "technique", "quote", "explanation"], "additionalProperties": False}},
+        "chair_person": {"type": "string"},
         "speaker_names": {"type": "array", "items": {
             "type": "object",
             "properties": {"label": {"type": "string"}, "name": {"type": "string"}},
             "required": ["label", "name"], "additionalProperties": False}},
     },
-    "required": ["violations", "fact_checks", "chair_actions", "agenda_item", "speaker_names", "tone",
-                 "rhetoric"],
+    "required": ["violations", "fact_checks", "chair_actions", "agenda_item", "chair_person", "speaker_names",
+                 "tone", "rhetoric"],
     "additionalProperties": False,
 }
 
@@ -219,6 +225,7 @@ class Judge(threading.Thread):
         self.calls = 0
         self.agenda = ""
         self.speaker_info = ""
+        self.chair_info = "nije još prepoznat"
         self.last_call = time.time()
         self.last_caption_name = None
         self.sent_claims = []
@@ -328,6 +335,7 @@ class Judge(threading.Thread):
 
     def _judge(self, batch):
         msg = (f"TAČKA DNEVNOG REDA: {self.agenda or 'nepoznata'}\n"
+               f"PREDSEDAVAJUĆI (ko vodi sednicu): {self.chair_info}\n"
                f"TRENUTNI GOVORNIK: {self.speaker_info or 'nepoznat'}\n\n"
                + (f"JAVNI PROFIL GOVORNIKA (pozadina, sa izvorima):\n{self.speaker_profile}\n\n"
                   if self.speaker_profile else "")

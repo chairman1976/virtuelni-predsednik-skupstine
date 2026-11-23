@@ -48,6 +48,14 @@ there. Stretches already judged are not judged or penalized again when you scrol
 
 Hover over any button, field or tab for a short explanation.
 
+**Who is chairing** (`chair.py`, `data/rukovodstvo.json` - the Speaker and the six deputy speakers elected on
+19.11.2026, with links to the decisions): recognised from the broadcast caption while the chair talks, from MPs
+addressing the chair ("predsedniče Čupiću", "potpredsednice Petrović"; a plain "gospodine X" needs two), from
+handover sentences ("predsedavanje preuzima…"), from Claude, and from the voice - when a clearly different voice
+starts giving the floor, the chair has changed (the previous chair keeps their own voiceprint). Shown in the
+speaker card and transcript ("Predsedavajući (Aleksandar Čupić)"); the chair score is also given per person.
+Addressing the chair by name is not counted as addressing another MP. Update the JSON if the leadership changes.
+
 **Speakers identified later:** an unannounced voice starts as "Govornik N" (or "Glas N" for heckling from the
 hall). As soon as it is recognised - the on-screen caption, the chair naming them, or Claude from context - all
 of it moves to the real MP: transcript lines, measures (the warning ladder is replayed in time order, so an
