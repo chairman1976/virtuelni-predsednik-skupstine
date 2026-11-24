@@ -9,6 +9,7 @@
 - speech_gender(text): the speaker's own grammar - "rekao sam" (M) / "rekla sam" (F), "uveren/uverena sam".
 """
 import difflib
+import functools
 import json
 import os
 import re
@@ -209,9 +210,13 @@ def find_announced(text):
     return ROSTER[best], best_s, role_gender(lat)
 
 
+@functools.lru_cache(maxsize=8192)
 def roster_lookup(name):
-    """Best roster entry for a free-form name (e.g. from Claude or a regex), or None."""
-    f = fold(name)
+    """Best roster entry for a free-form name (e.g. from Claude or a regex), or None.
+
+    Cached: the statistics tab looks up every transcript line's speaker every few seconds, and 250 difflib
+    comparisons per call froze the GUI for 0.3-0.7 s once a session got long (measured on a live stream)."""
+    f = fold(name or "")
     if " " not in f.strip():
         # just a surname ("Čupić"): fine if exactly one MP has it
         hits = [mp for mp in ROSTER if f.strip() in fold(mp["name"]).replace("-", " ").split()[1:]]
