@@ -2054,8 +2054,10 @@ class Main(QMainWindow):
         self.set_status(f"Transkript sačuvan: {path} ({len(self.segments)} redova)")
 
     # short list names for the transcript / subtitles (full names elsewhere)
-    GROUP_SHORT = {"studentska lista": "Studentska lista", "aleksandar vučić - srbija pobeđuje": "Srbija pobeđuje",
+    GROUP_SHORT = {"studentska lista": "SL", "aleksandar vučić - srbija pobeđuje": "Srbija pobeđuje",
                    "nisu članovi poslaničkih grupa": "van poslaničkih grupa"}
+    # lists whose MPs mostly have no party: the list's abbreviation stands in the party place
+    LIST_ABBR = {"studentska lista": "SL"}
 
     def list_of(self, name):
         """The electoral list / parliamentary group a person sits for (full name), '' if unknown / not an MP."""
@@ -2070,7 +2072,9 @@ class Main(QMainWindow):
         if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ", "Iz sale")):
             return ""
         mp = names.roster_lookup(self.tracker.final_name(name) if getattr(self, "tracker", None) else name)
-        return mp["party"] if mp and mp.get("party") not in (None, "", "-") else ""
+        if mp and mp.get("party") not in (None, "", "-"):
+            return mp["party"]
+        return self.LIST_ABBR.get(self.list_of(name).lower(), "")      # Studentska lista -> SL
 
     def party_and_list(self, name):
         return " · ".join(x for x in (self.party_of(name), self.list_of(name)) if x)
@@ -2082,7 +2086,8 @@ class Main(QMainWindow):
             return ""
         g = self.list_of(name)
         lst = self.GROUP_SHORT.get(g.lower(), g if len(g) <= 28 else g[:26] + "…") if g else ""
-        return " · ".join(x for x in (self.party_of(name), lst) if x)
+        party = self.party_of(name)
+        return " · ".join(x for x in (party, lst if lst != party else "") if x)
 
     def group_of(self, name):
         """Parliamentary group of a speaker: roster first, then what the on-screen caption said."""
