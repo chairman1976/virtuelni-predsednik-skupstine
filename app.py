@@ -1127,8 +1127,10 @@ class Main(QMainWindow):
             return
         who = self.voice_at(t)
         what = self.tracker.set_face(name, t, who)
-        if what == "named voice":
+        if what == "named voice" and sim >= 0.55:          # weak face matches are no evidence
             self.conflict_evidence(name, t, 1, "lice")
+        elif what == "same":
+            self.confirm_voice(name, t)
         self.face_seen = (name, sim, time.time())
         self._log({"type": "face", "t": t, "name": name, "sim": round(sim, 2), "voice": who, "result": what})
         self.update_speaker_panel()
@@ -1458,9 +1460,18 @@ class Main(QMainWindow):
         ev[(who, name)] = lst
         w = sum(e[1] for e in lst)
         srcs = {e[2] for e in lst}
-        if (w >= 3 and len(srcs) >= 2) or (w >= 4 and "natpis" in srcs) or w >= 6:
+        # a caption must be part of it: faces alone mistook Vučić for Brnabić (similarity 0.43-0.47) and moved
+        # his whole voice to her
+        if "natpis" in srcs and w >= 3:
             ev.pop((who, name), None)
             self.split_voice(who, name, [e[0] for e in lst])
+
+    def confirm_voice(self, name, t):
+        """A caption / face confirms the name of the voice talking at t: doubts about that voice are dropped."""
+        who = self.voice_at(t)
+        if who and self.same_person(self.tracker.final_name(who), name):
+            for k in [k for k in getattr(self, "conflicts", {}) if k[0] == self.tracker.final_name(who)]:
+                self.conflicts.pop(k, None)
 
     def split_voice(self, old, new, times):
         """Voice `old` mixes two people; around `times` it is `new`. Two-way clustering of the voiceprints of all
@@ -1493,7 +1504,13 @@ class Main(QMainWindow):
         else:
             moved_t = None
         if moved_t is None:
-            self.reassign_lines(old, new, lambda tt: True, why="natpis/lice: ceo glas", move_voice=True)
+            # no reliable split (old lines without voiceprints, or one voice after all): correct only the turn the
+            # evidence is in - never the whole voice back to the start (only a manual correction does that)
+            first, hi = min(times), max(times) + 10
+            turn = max((tr for tr in self.tracker.turns if tr.since <= first), key=lambda tr: tr.since, default=None)
+            # from the start of the turn the evidence falls in (at most 10 min back), else just around it
+            lo = max(turn.since, first - 600) if turn is not None else first - 30
+            self.reassign_lines(old, new, lambda tt: lo <= tt <= hi, why="natpis/lice: ovaj nastup")
             return
         import bisect
 
@@ -1563,6 +1580,7 @@ class Main(QMainWindow):
     def on_caption_local(self, mp, group, score, t):
         self.last_local_caption = time.time()
         self.conflict_evidence(mp["name"], t, 2, "natpis")
+        self.confirm_voice(mp["name"], t)
         self.tracker.set_caption(mp["name"], group, "", t, mp["gender"])
         self._log({"type": "caption", "src": "ocr", "t": t, "name": mp["name"], "group": group,
                    "score": round(score, 2)})

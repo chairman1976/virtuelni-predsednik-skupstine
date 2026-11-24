@@ -25,7 +25,8 @@ SFACE = ("face_recognition_sface_2021dec.onnx", ZOO + "face_recognition_sface/fa
 GALLERY = os.path.join(DATA, "faces.npz")
 SITE = "https://www.parlament.gov.rs"
 
-MATCH = 0.42          # cosine similarity (SFace: same person usually > 0.4, others < 0.3)
+MATCH = 0.48          # cosine similarity (SFace: same person ~0.5-0.75 here; Vučić's face scored 0.43-0.47 as
+                      # Brnabić - too close)
 MARGIN = 0.06         # ...and clearly better than the second-best MP
 MIN_FACE = 40         # px (face height in the 640x360 frame) - smaller faces are too blurry to tell
 
