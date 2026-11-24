@@ -2176,7 +2176,9 @@ class Main(QMainWindow):
             if r:
                 key = {"upozorenje": "warnings", "opomena": "opomene", "opomena2": "opomene",
                        "oduzimanje": "oduzimanje", "udaljenje": "udaljenje"}.get(a["measure"])
-                item = (a["t"], a["quote"], f"{MEASURES[a['measure']][0]} – {a['label']}", "")
+                why = next((i["explanation"] for i in self.incidents
+                            if abs(i["t"] - a["t"]) < 0.01 and i["quote"] == a["quote"]), "")
+                item = (a["t"], a["quote"], f"{MEASURES[a['measure']][0]} – {a['label']}", why)
                 if key:
                     r["_items"][key].append(item)
                 if a["measure"] != "upozorenje":
@@ -2202,8 +2204,10 @@ class Main(QMainWindow):
                 r = row(c.get("speaker", ""))
                 if r:
                     r["false"] += 1
+                    src = " · ".join(f"<a href='{html.escape(x.get('url', ''))}'>{html.escape(x.get('title') or 'izvor')}</a>"
+                                     for x in res.get("sources", [])[:5] if x.get("url"))
                     r["_items"]["false"].append((c["t"], c["claim"], res.get("verdict", "").upper(),
-                                                 res.get("explanation", "")))
+                                                 res.get("explanation", ""), src))
         for x in self.tones:
             if x["tone"] in ("uvredljiv", "agresivan"):
                 r = row(x["speaker"])
@@ -2273,13 +2277,15 @@ class Main(QMainWindow):
                 h = report.col_title(next(h for kk, h, _t in report.RANK_COLS if kk == k))
                 out.append(f"<p style='margin:8px 0 2px 0'><b>{html.escape(h)}</b> ({len(items)})</p>")
             seen = set()
-            for t, quote, label, expl in sorted(items, key=lambda x: x[0]):
+            for t, quote, label, expl, *extra in sorted(items, key=lambda x: x[0]):
                 if (t, quote) in seen:
                     continue
                 seen.add((t, quote))
                 out.append(f"<p style='margin:6px 0 1px 8px'>{self.tlink(t)} <i>„{html.escape(quote)}“</i>"
                            f" <span style='color:#666'>– {html.escape(label)}"
-                           + (f": {html.escape(expl)}" if expl else "") + "</span></p>")
+                           + (f": {html.escape(expl)}" if expl else "") + "</span>"
+                           + (f"<br><span style='font-size:small'>Izvori: {extra[0]}</span>" if extra and extra[0]
+                              else "") + "</p>")
                 out.append(self.context_html(t, quote))
         if len(out) == 1:
             out.append("<p style='color:#888'>Nema zabeleženih rečenica za ovu kolonu.</p>")
