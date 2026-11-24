@@ -295,6 +295,13 @@ class SpeakerTracker:
             if self.turn and self.turn.name == name:
                 self.turn.face = True
             return "same"
+        if self.chair.person and self.canonical(self.chair.person) == name:
+            # the face of whoever is chairing: an unnamed voice talking now is the chair's voice, not an MP
+            v = self.voices.get(voice)
+            if v is not None and v.anon:
+                self._rename(voice, CHAIR, force=True)
+                return "chair voice"
+            return "chair"
         v = self.voices.get(voice)
         if v is None or not v.anon:
             return "named voice"                 # e.g. a reaction shot while someone else talks

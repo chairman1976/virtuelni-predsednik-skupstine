@@ -102,6 +102,13 @@ HOW TO JUDGE
   "claim": one self-contained sentence in Serbian Latin that makes sense without the transcript (who did what,
   where), cleaned of recognition errors.
 - The transcript has recognition errors: judge the evident meaning, but only report what the words support.
+- QUOTING is not insulting. Always read the context: when a speaker repeats insulting words that were said TO or
+  ABOUT them (or someone else) - "rekli ste mi da sam lopov", "nazvali ste nas izdajnicima", reading a hostile
+  headline or post aloud - the speaker is not insulting anyone. Do not report insult/profanity for the quoted
+  words; at most a "disorder" with confidence <= 0.5 if the sentence itself is still problematic (e.g. the quote
+  is used to provoke). If the quote is WRONG - the person never said it, or it is distorted / taken out of context
+  - that is manipulation and a falsehood: put it in rhetoric (strawman or gaslighting, with the quote) and in
+  fact_checks ("X je rekao/la ..." as the claim to verify).
 - A word marked "(?)" was heard uncertainly by the speech recognition and may be a mishearing of a similar,
   harmless word (e.g. "svinje" for "sve nje", "lopovi" for "lopte"). Never report insult, profanity, private
   life or threats when the offending word is marked (?) or does not fit the sentence and context - then either

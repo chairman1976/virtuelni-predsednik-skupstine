@@ -46,9 +46,81 @@ def resolve(url):
         "video_url": vurl,
         "audio_url": aurl,
         "headers": headers,
+        "id": info.get("id", ""),
+        "url": url,
+        "release_ts": info.get("release_timestamp") or 0,     # live: when the broadcast started (epoch s)
         # day of the broadcast (YYYYMMDD): the agenda search and fact checks need the sitting's date
         "date": info.get("release_date") or info.get("upload_date") or "",
     }
+
+
+def live_position(src):
+    """Broadcast time (s since the live stream began) of the HLS segment ffmpeg starts reading now. YouTube's live
+    HLS carries the broadcast's own timestamps (measured: ~40 s behind 'now - release_timestamp'), so sessions
+    are timed in broadcast time - a session resumed after a lost connection, or a replayed part, lines up."""
+    try:
+        p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0",
+                            src["audio_url"]], capture_output=True, text=True, creationflags=NOWIN, timeout=30)
+        return float(p.stdout.strip())
+    except (ValueError, subprocess.SubprocessError, OSError):
+        return max(0.0, time.time() - src.get("release_ts", time.time()) - 40)
+
+
+class DVR:
+    """The whole of a live broadcast so far, as 5-second DASH fragments ('sq' N starts at ~N x 5 s of broadcast
+    time). YouTube keeps them while the stream is live, so a missed stretch can be played afterwards."""
+
+    def __init__(self, url):
+        cmd = ["yt-dlp", "--js-runtimes", "node", "--no-warnings", "--live-from-start", "-J", "--no-playlist", url]
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", creationflags=NOWIN, timeout=120)
+        if p.returncode != 0:
+            raise RuntimeError("yt-dlp: " + (p.stderr.strip().splitlines() or ["arhiva prenosa nije dostupna"])[-1])
+        info = json.loads(p.stdout)
+        fs = [f for f in info.get("formats", []) if f.get("is_from_start")]
+        aud = [f for f in fs if f.get("vcodec") in (None, "none") and f.get("acodec") not in (None, "none")]
+        vid = [f for f in fs if f.get("vcodec", "none") != "none" and str(f.get("vcodec", "")).startswith("avc1")
+               and (f.get("height") or 999) <= 480]
+        if not aud or not vid:
+            raise RuntimeError("arhiva prenosa nema odgovarajuće formate")
+        a = next((f for f in aud if f["format_id"] == "140"), aud[-1])
+        v = max(vid, key=lambda f: f.get("height") or 0)
+        self.urls = {"a": a["url"], "v": v["url"]}
+        self.headers = a.get("http_headers") or {}
+        self.dur = float(a.get("target_duration") or 5)
+        self.head = None                                   # newest fragment number (X-Head-Seqnum)
+        self.url, self.made = url, time.time()
+
+    def fetch(self, kind, sq):
+        """Fragment bytes, or None if it does not exist yet (beyond the live edge)."""
+        import ssl
+        import urllib.error
+        import urllib.request
+        import certifi
+        from common import CA_BUNDLE
+        import os
+        ctx = ssl.create_default_context(cafile=CA_BUNDLE if os.path.exists(CA_BUNDLE) else certifi.where())
+        u = self.urls[kind]
+        req = urllib.request.Request(u + ("&" if "?" in u else "?") + f"sq={sq}",
+                                     headers={"User-Agent": self.headers.get("User-Agent", "Mozilla/5.0")})
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                h = r.headers.get("X-Head-Seqnum")
+                if h and h.isdigit():
+                    self.head = int(h)
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 410) and time.time() - self.made > 600:
+                self.__init__(self.url)                    # links expire: fetch fresh ones once
+                return self.fetch(kind, sq)
+            if e.code in (404, 204):
+                return None
+            raise
+
+
+def _decode(data, args):
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0"] + args + ["pipe:1"],
+                       input=data, capture_output=True, creationflags=NOWIN, timeout=60)
+    return p.stdout
 
 
 class _Listener:
@@ -281,3 +353,99 @@ class Player:
         if self.volume < 0.999:
             a = (a.astype(np.float32) * self.volume).astype(np.int16)
         outdata[:] = a
+
+
+class DVRPlayer(Player):
+    """Plays a live broadcast from an earlier moment out of its DVR fragments (see DVR), at normal speed, through
+    the same jitter buffer / picture clock / ASR feed as Player. When it reaches the live edge it keeps waiting for
+    the next fragment, so it simply carries on live (about one fragment behind)."""
+
+    def __init__(self, src, start_s, on_asr_audio, on_frame, on_end, dvr):
+        super().__init__(src, start_s, on_asr_audio, on_frame, on_end)
+        self.dvr = dvr
+        self.sq = max(0, int(start_s // dvr.dur))
+        self.behind = 0.0                                   # seconds behind the live edge (for the UI)
+        log(f"dvr player: from {start_s:.1f} s = fragment {self.sq}")         # diagnostics
+
+    def start(self):
+        import sounddevice as sd
+        self.running = True
+        threading.Thread(target=self._fetcher, daemon=True).start()
+        threading.Thread(target=self._presenter, daemon=True).start()
+        self._out = sd.OutputStream(samplerate=PLAY_SR, channels=2, dtype="int16", blocksize=2048,
+                                    callback=self._play_cb, latency="high")
+        self._out.start()
+
+    def stop(self):
+        self.running = False
+        if self._out:
+            try:
+                self._out.stop()
+                self._out.close()
+            except Exception:
+                pass
+            self._out = None
+
+    def _fetcher(self):
+        first, misses = True, 0
+        vf = (f"scale={VW}:{VH}:force_original_aspect_ratio=decrease,"
+              f"pad={VW}:{VH}:(ow-iw)/2:(oh-ih)/2,fps={FPS}")
+        while self.running:
+            self._wait_room(self.buffered)
+            if not self.running:
+                break
+            try:
+                a = self.dvr.fetch("a", self.sq)
+                v = self.dvr.fetch("v", self.sq) if a else None
+            except Exception as e:
+                log("dvr:", e)
+                time.sleep(2)
+                continue
+            if self.dvr.head is not None:
+                self.behind = max(0.0, (self.dvr.head - self.sq) * self.dvr.dur)
+            if not a or not v:
+                misses += 1
+                if misses > 120:                            # ~4 min without a new fragment: the broadcast ended
+                    break
+                time.sleep(2)
+                continue
+            misses = 0
+            if first:
+                # exact broadcast time of this fragment, so the session clock is the broadcast's
+                p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=start_time", "-of",
+                                    "csv=p=0", "-i", "pipe:0"], input=a, capture_output=True,
+                                   creationflags=NOWIN, timeout=30)
+                try:
+                    probed = float(p.stdout.strip() or "nan")
+                except ValueError:
+                    probed = float("nan")
+                guess = self.sq * self.dvr.dur
+                # a fragment's own time is exact (sq 720 -> 3596.7 s); trust it unless it is clearly off
+                self.start_s = self.asr_time = probed if abs(probed - guess) < 120 else guess
+                first = False
+            pcm = _decode(a, ["-ac", "2", "-ar", str(PLAY_SR), "-f", "s16le"])
+            raw = _decode(v, ["-vf", vf, "-pix_fmt", "rgb24", "-f", "rawvideo"])
+            size = VW * VH * 3
+            with self.frame_lock:
+                for i in range(len(raw) // size):
+                    self.frames.append((self.start_s + self.n_frames / FPS, raw[i * size:(i + 1) * size]))
+                    self.n_frames += 1
+            with self.play_lock:
+                self.play_buf.append(pcm)
+                self.play_queued += len(pcm)
+            # ASR: 48 kHz stereo -> 16 kHz mono (average of 3 samples is enough low-pass for speech)
+            st = np.frombuffer(pcm, dtype=np.int16).astype(np.float32).reshape(-1, 2).mean(axis=1) / 32768.0
+            st = st[: len(st) // 3 * 3].reshape(-1, 3).mean(axis=1)
+            for i in range(0, len(st), ASR_SR // 5):
+                chunk = st[i:i + ASR_SR // 5]
+                t0 = self.start_s + self.asr_samples / ASR_SR
+                self.asr_samples += len(chunk)
+                self.asr_time = self.start_s + self.asr_samples / ASR_SR
+                self.on_asr_audio(chunk, t0)
+            self.sq += 1
+        if self.running:
+            self.eof = True
+            while self.running and (self.play_queued > 0 or self.frames):
+                time.sleep(0.1)
+            self.running = False
+            self.on_end()

@@ -53,6 +53,7 @@ def save(w):
     st = {
         "version": VERSION, "url": w.s["last_url"], "title": w.src["title"], "live": w.src["is_live"],
         "saved": time.time(), "pos": pos, "log_path": w.log_path, "tracker": tr,
+        "clock": "broadcast" if w.src["is_live"] else "media",   # live: times are broadcast time
         "fields": {k: getattr(w, k) for k in FIELDS},
         # turns are flagged by id() - store their index instead
         "flagged": [("official", turns[x[1]]) if isinstance(x, tuple) else turns[x]
@@ -81,6 +82,44 @@ def save(w):
         log("session save:", e)
     finally:
         tr.on_rename, tr.chair.on_change = on_rename, on_change
+
+
+def shift_times(st, dt):
+    """Move every time in a saved session by dt seconds (an older live session timed from when the app
+    started -> broadcast time)."""
+    f = st["fields"]
+    for g in f["segments"]:
+        g["t0"] += dt
+        g["t1"] += dt
+    for it in f["tx_items"]:
+        for k in ("t", "seek", "resume"):
+            if k in it:
+                it[k] += dt
+    for k in ("incidents", "real_measures", "claims", "rhetoric", "tones"):
+        for x in f[k]:
+            if "t" in x:
+                x["t"] += dt
+    f["last_context"] = {k: v + dt for k, v in f["last_context"].items()}
+    for iv in f["covered"]:                 # cur_stretch is one of these lists (same object): shifted once
+        iv[0] += dt
+        iv[1] += dt
+    tr = st["tracker"]
+    for t in tr.turns:
+        t.since += dt
+    for v in tr.voices.values():
+        if getattr(v, "last_t", None) is not None:
+            v.last_t += dt
+    tr.last_voice = (tr.last_voice[0], tr.last_voice[1] + dt)
+    tr.last_any = (tr.last_any[0], tr.last_any[1] + dt)
+    tr.run = (tr.run[0], tr.run[1] + dt) if tr.run else None
+    tr.pending = (*tr.pending[:3], tr.pending[3] + dt) if tr.pending else None
+    ch = tr.chair
+    for e in ch.timeline:
+        e["t"] += dt
+    ch.votes = [(t + dt, n, w) for t, n, w in ch.votes]
+    ch.gender_cues = [(t + dt, g) for t, g in ch.gender_cues]
+    st["pos"] += dt
+    st["clock"] = "broadcast"
 
 
 def load(path):

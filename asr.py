@@ -128,6 +128,12 @@ class ASRWorker(threading.Thread):
     def push(self, pcm, t0):
         self.q.put((pcm, t0, self.gen))
 
+    def pusher(self):
+        """push() bound to the current seek generation: a player stopped by a seek may still deliver one last
+        chunk after reset() - with its old generation it is dropped instead of shifting the new stretch's clock."""
+        gen = self.gen
+        return lambda pcm, t0: self.q.put((pcm, t0, gen))
+
     def reset(self):
         """Seek: forget buffered audio; segments still in flight from before are dropped."""
         self.gen += 1

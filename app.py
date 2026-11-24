@@ -76,6 +76,7 @@ class Bridge(QObject):
     status = pyqtSignal(str)
     agenda = pyqtSignal(object)
     resolved = pyqtSignal(object)
+    dvr_ready = pyqtSignal(object, float)
     failed = pyqtSignal(str)
     ended = pyqtSignal()
 
@@ -203,6 +204,7 @@ class Main(QMainWindow):
         self.b.caption.connect(self.on_caption)
         self.b.caption_local.connect(self.on_caption_local)
         self.b.face.connect(self.on_face)
+        self.b.dvr_ready.connect(self.on_dvr_ready)
         self.b.timer.connect(self.on_timer)
         self.b.fact.connect(self.on_fact)
         self.b.profile.connect(self.on_profile)
@@ -344,7 +346,18 @@ class Main(QMainWindow):
         self.timeline.setToolTip("Prevuci ili klikni da skočiš na deo snimka (← → 10 s, razmak = pauza)")
         seek_row.addWidget(self.timeline, 1)
         seek_row.addWidget(self.time_lbl)
+        self.live_btn = QPushButton("● UŽIVO")
+        self.live_btn.setToolTip("Nazad na prenos uživo")
+        self.live_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.live_btn.clicked.connect(lambda: self.seek(1e12))
+        self.live_btn.setVisible(False)
+        seek_row.addWidget(self.live_btn)
         lv.addLayout(seek_row)
+        self.gaps_lbl = QLabel("")
+        self.gaps_lbl.setWordWrap(True)
+        self.gaps_lbl.setProperty("muted", True)
+        self.gaps_lbl.linkActivated.connect(lambda u: self.on_link(QUrl(u)))
+        lv.addWidget(self.gaps_lbl)
         self.dragging = False
         panel = QWidget()
         panel.setObjectName("speakerCard")
@@ -663,8 +676,8 @@ class Main(QMainWindow):
                 elif c["status"] in ("queued", "checking"):
                     c["status"] = "queued"
                     self.facter.submit(c)
-        self.tx_items.append({"resume": start_s})
-        self.render(self.transcript, "".join(f"<p style='margin:0'>{self.tx_html(it)}</p>" for it in self.tx_items))
+        self.segments.sort(key=lambda g: g["t0"])        # older sessions appended replays out of order
+        self.render_transcript()
         self.rebuild_measures()
         self.render_rhetoric()
         self.render_facts()
@@ -708,12 +721,21 @@ class Main(QMainWindow):
         self.segments = []              # for transcript export
         self.report_path = None
         self.table.setRowCount(0)
-        start_s = 0.0 if src["is_live"] else parse_time(self.start_at.text())
+        self.dvr, self.dvr_loading = None, False
+        if src["is_live"]:
+            # broadcast time: a resumed session or a replayed stretch lands exactly where it belongs
+            start_s = stream.live_position(src)
+            self.live_off = start_s - (time.time() - src["release_ts"]) if src.get("release_ts") else 0.0
+        else:
+            start_s = parse_time(self.start_at.text())
         resume = self.ask_resume()
         if resume:
-            # recording: back where it stopped (a few seconds early); live: the clock goes on by the time away
-            start_s = (resume["pos"] + (time.time() - resume["saved"]) if src["is_live"]
-                       else max(0.0, resume["pos"] - 5))
+            if src["is_live"] and resume.get("clock") != "broadcast" and src.get("release_ts"):
+                # an older live session timed from when the app started: move it onto the broadcast clock
+                heard = resume["saved"] - src["release_ts"] + self.live_off - stream.AHEAD_S
+                session_state.shift_times(resume, heard - resume["pos"])
+            if not src["is_live"]:
+                start_s = max(0.0, resume["pos"] - 5)    # back where it stopped (a few seconds early)
             self.start_at.setText("0" if src["is_live"] else fmt_time(start_s))
         stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
         safe = re.sub(r"[^\w\- ]", "", src["title"])[:60].strip() or "sednica"
@@ -783,10 +805,11 @@ class Main(QMainWindow):
         kind = "UŽIVO" if src["is_live"] else "snimak"
         live = src["is_live"]
         dur = int(src["duration"] or 0)
-        self.timeline.setEnabled(not live and dur > 0)
-        self.timeline.setRange(0, max(1, dur))
+        self.timeline.setEnabled(live or dur > 0)        # live too: back into the broadcast (DVR)
+        self.timeline.setRange(0, max(1, int(self.live_edge()) if live else dur))
         for b in (self.back_btn, self.pause_btn, self.fwd_btn):
-            b.setEnabled(not live)
+            b.setEnabled(True)
+        self.live_btn.setVisible(live)
         self.setWindowTitle(f"Virtuelni predsednik skupštine – {src['title']} ({kind})")
         self.set_status(f"Puštam: {src['title']} ({kind}). Model govora se učitava…")
 
@@ -801,7 +824,11 @@ class Main(QMainWindow):
             except Exception as e:
                 self.on_failed(str(e))
                 return False
-        self.player = stream.Player(self.src, start_s, self.asr.push, self._frame, self.b.ended.emit)
+        if self.src["is_live"] and self.dvr is not None and start_s < self.live_edge() - 25:
+            self.player = stream.DVRPlayer(self.src, start_s, self.asr.pusher(), self._frame, self.b.ended.emit,
+                                           self.dvr)
+        else:
+            self.player = stream.Player(self.src, start_s, self.asr.pusher(), self._frame, self.b.ended.emit)
         self.player.volume = self.s["volume"]
         try:
             self.player.start()
@@ -811,16 +838,56 @@ class Main(QMainWindow):
         return True
 
     # ---- scrolling through a recording -----------------------------------------------------------
+    def live_edge(self):
+        """Broadcast time of the live edge as the live player would start it now."""
+        if self.src.get("release_ts"):
+            return time.time() - self.src["release_ts"] + getattr(self, "live_off", 0.0)
+        return self.player.stream_time if self.player else 0.0
+
+    def is_behind(self):
+        return isinstance(self.player, stream.DVRPlayer)
+
+    def _load_dvr(self, t):
+        try:
+            dvr = stream.DVR(self.src.get("url") or self.s["last_url"])
+        except Exception as e:
+            log("dvr:", e)
+            self.b.status.emit(f"Arhiva prenosa nije dostupna: {e}")
+            dvr = None
+        self.b.dvr_ready.emit(dvr, t)
+
+    def on_dvr_ready(self, dvr, t):
+        self.dvr_loading = False
+        if dvr is not None and self.running:
+            self.dvr = dvr
+            self.seek(t)
+
     def seek(self, t):
-        if not self.running or self.src["is_live"]:
+        if not self.running:
             return
-        dur = self.src["duration"] or 0
-        t = max(0.0, min(float(t), dur - 3 if dur else float(t)))
+        live = self.src["is_live"]
+        if live:
+            t = max(0.0, float(t))
+            go_live = t >= self.live_edge() - 25
+            if not go_live and self.dvr is None:
+                # first jump back: the broadcast's fragment links take ~7 s to fetch - keep playing meanwhile
+                if not self.dvr_loading:
+                    self.dvr_loading = True
+                    self.set_status(f"Učitavam arhivu prenosa da pustim {fmt_time(t)} (jednom, ~7 s)…")
+                    threading.Thread(target=self._load_dvr, args=(t,), daemon=True).start()
+                return
+            if go_live and not self.is_behind() and not self.paused and self.player:
+                return                                   # already live
+        else:
+            dur = self.src["duration"] or 0
+            t = max(0.0, min(float(t), dur - 3 if dur else float(t)))
         if self.player:
             self.player.stop()
         self.asr.reset()
         if self.judge:
             self.judge.reset()
+        if live and go_live:
+            t = stream.live_position(self.src)
         self._new_stretch(t)
         self.tracker.turn, self.tracker.run, self.last_turn_obj = None, None, None
         self.sp_name.setText("—")
@@ -828,14 +895,58 @@ class Main(QMainWindow):
         self.paused = False
         self.pause_btn.setText("⏸")
         self.timeline.setValue(int(t))
-        self.tx_items.append({"seek": t})
-        self.transcript.append(self.tx_html(self.tx_items[-1]))
         self._log({"type": "seek", "t": t})
         self._start_player(t)
 
     def _new_stretch(self, t):
         self.cur_stretch = [t, t]
         self.covered.append(self.cur_stretch)
+
+    def coverage(self):
+        """Merged [from, to] stretches that were listened to."""
+        out = []
+        for a, b in sorted((iv[0], iv[1]) for iv in self.covered if iv[1] > iv[0]):
+            if out and a <= out[-1][1] + 3:
+                out[-1][1] = max(out[-1][1], b)
+            else:
+                out.append([a, b])
+        return out
+
+    def gaps(self, min_len=20):
+        """Missed stretches: from the start of the session/broadcast up to the furthest point listened to."""
+        cov, out, pos = self.coverage(), [], 0.0
+        for a, b in cov:
+            if a - pos >= min_len:
+                out.append((pos, a))
+            pos = max(pos, b)
+        return out
+
+    def gaps_before(self, t, last):
+        return any(last < a < t for a, _b in self.gaps())
+
+    def gap_html(self, a, b):
+        return (f"<p style='color:#c0392b;margin:6px 0'><i>── propušteno {fmt_time(a)}–{fmt_time(b)} "
+                f"({fmt_time(b - a)[2:] if b - a < 3600 else fmt_time(b - a)}) · </i>"
+                f"<a href='t:{a + 3:.1f}' style='color:#c0392b'>pusti ovaj deo</a> <i>──</i></p>")
+
+    def render_transcript(self):
+        """The transcript in time order, with markers for stretches nobody listened to (click = play it)."""
+        items = sorted((it for it in self.tx_items if "who" in it), key=lambda x: x["t"])
+        gaps, gi, out = self.gaps(), 0, []
+        for it in items:
+            while gi < len(gaps) and gaps[gi][1] <= it["t"] + 0.5:
+                out.append(self.gap_html(*gaps[gi]))
+                gi += 1
+            out.append(f"<p style='margin:0'>{self.tx_html(it)}</p>")
+        self.render(self.transcript, "".join(out))
+
+    def update_gaps_label(self):
+        gaps = self.gaps(30) if self.running else []
+        if not gaps:
+            self.gaps_lbl.setText("")
+            return
+        links = ", ".join(f"<a href='t:{a + 3:.1f}'>{fmt_time(a)}–{fmt_time(b)}</a>" for a, b in gaps[:5])
+        self.gaps_lbl.setText(f"Propušteno (klik = pusti i dopuni): {links}" + (" …" if len(gaps) > 5 else ""))
 
     def already_judged(self, t):
         """True if moment t was already covered before the latest seek (don't judge or penalize twice)."""
@@ -847,8 +958,8 @@ class Main(QMainWindow):
             self.seek(base + delta)
 
     def toggle_pause(self):
-        if not self.running or self.src["is_live"]:
-            return
+        if not self.running:
+            return                                       # live too: resuming plays on from the archive
         if self.paused:
             # resume a bit early: speech still buffered for transcription at pause time was dropped
             self.seek(min(self.paused_at, self.asr.last_end or self.paused_at))
@@ -1003,11 +1114,11 @@ class Main(QMainWindow):
 
     def voice_at(self, t):
         """Who was talking at moment t (transcript segments)."""
-        for g in reversed(self.segments[-60:]):
+        import bisect
+        i = bisect.bisect_right(self.segments, t + 0.5, key=lambda g: g["t0"])
+        for g in reversed(self.segments[max(0, i - 8):i]):
             if g["t0"] - 0.5 <= t <= g["t1"] + 1.0:
                 return g["who"]
-            if g["t1"] < t - 10:
-                break
         return None
 
     def on_face(self, name, sim, t):
@@ -1053,9 +1164,14 @@ class Main(QMainWindow):
     def subtitle_at(self, t):
         """(speaker with party, text) of the transcript line being heard at t, or None. The transcript runs a
         few seconds ahead of the sound (jitter buffer), so lines are ready when they are heard."""
-        for g in reversed(getattr(self, "segments", [])[-40:]):
+        import bisect
+        segs = getattr(self, "segments", [])
+        i = bisect.bisect_right(segs, t + 0.2, key=lambda g: g["t0"])
+        for g in reversed(segs[max(0, i - 6):i]):
             if g["t0"] - 0.2 <= t <= g["t1"] + 0.8:
                 who = self.tracker.final_name(g["who"])
+                if who != CHAIR and self.chairing(who, g["t0"]):
+                    who = CHAIR
                 label = self.chair_label(g["t0"]) if who == CHAIR else who
                 tag = self.party_tag(who)
                 return (f"{label} [{tag}]" if tag else label), g["text"]
@@ -1075,7 +1191,16 @@ class Main(QMainWindow):
                 self.timeline.blockSignals(False)
                 self.time_lbl.setText(f"{fmt_time(t)} / {fmt_time(dur)}")
             else:
-                self.time_lbl.setText(f"UŽIVO · {fmt_time(t)}")
+                edge = self.live_edge()
+                self.timeline.blockSignals(True)
+                self.timeline.setRange(0, max(1, int(edge)))
+                self.timeline.setValue(int(t))
+                self.timeline.blockSignals(False)
+                behind = edge - t
+                self.time_lbl.setText(f"{fmt_time(t)} · −{fmt_time(behind)[2:] if behind < 3600 else fmt_time(behind)}"
+                                      if (self.is_behind() or self.paused) and behind > 30 else
+                                      f"UŽIVO · {fmt_time(t)}")
+                self.live_btn.setEnabled(self.is_behind() or self.paused)
         turn = self.tracker.turn
         if turn:
             el = self.tracker.elapsed(t)
@@ -1138,6 +1263,16 @@ class Main(QMainWindow):
             self.set_status(f"{fmt_time(t)} · transkript kasni {t - self.asr.last_end:.0f} s (model se učitava "
                             "ili GPU ne stiže)")
         self.request_caption(t)
+        if not self.paused and getattr(self, "cur_stretch", None):
+            # what was played counts as covered, speech or not (a break in the sitting is not a gap)
+            self.cur_stretch[1] = max(self.cur_stretch[1], t)
+            if self.is_behind() and 0 < self.cur_stretch[0] - self.player.start_s < 10:
+                self.cur_stretch[0] = self.player.start_s    # the archive starts at a fragment boundary
+        if getattr(self, "tx_dirty", False):
+            self.tx_dirty = False
+            self.render_transcript()
+        if int(time.time()) % 2 == 0:
+            self.update_gaps_label()
         if time.time() - getattr(self, "last_state_save", 0) > 60:
             self.last_state_save = time.time()
             session_state.save(self)
@@ -1168,6 +1303,12 @@ class Main(QMainWindow):
         if not self.asr or seg.gen != self.asr.gen:
             return                                  # from before a seek
         lab = self.tracker.label(seg)
+        if lab.who != CHAIR and self.chairing(self.tracker.final_name(lab.who), seg.t0):
+            lab.who, lab.is_chair = CHAIR, True            # the person chairing, under his own name
+        if self.already_judged(seg.t0):
+            # replaying a stretch that is already in the session: nothing is added twice
+            self.cur_stretch[1] = max(self.cur_stretch[1], seg.t1)
+            return
         unsure = seg.unsure or []
         line = {"t": seg.t0, "who": lab.who, "text": mark_unsure(seg.latin, unsure, "{}(?)"),
                 "loud_db": round(lab.loud_db, 1),
@@ -1178,9 +1319,10 @@ class Main(QMainWindow):
                    "f0": seg.f0 and round(seg.f0)})
         self.recent_lines = (self.recent_lines + [f"{lab.who}: {seg.latin}"])[-8:]
         loud_mark = lab.loud_db if lab.loud_db >= self.s["shout_db"] else 0
-        self.segments.append({"emb": None if seg.emb is None else seg.emb.astype("float16"),
-                              "t0": seg.t0, "t1": seg.t1, "who": lab.who, "text": seg.latin,
-                              "loud": round(loud_mark), "chair": lab.is_chair})
+        import bisect
+        bisect.insort(self.segments, {"emb": None if seg.emb is None else seg.emb.astype("float16"),
+                                      "t0": seg.t0, "t1": seg.t1, "who": lab.who, "text": seg.latin,
+                                      "loud": round(loud_mark), "chair": lab.is_chair}, key=lambda g: g["t0"])
         self.groups_dirty = True
         replay = self.already_judged(seg.t0)
         if self.judge and not replay:              # already judged before seeking back
@@ -1193,9 +1335,15 @@ class Main(QMainWindow):
         if loud:
             txt = (f"<b>{txt}</b> <span style='color:#e74c3c'>(GLASNO +{lab.loud_db:.0f} dB"
                    + (f", ton +{lab.pitch_up:.0f} %" if lab.pitch_up >= 15 else "") + ")</span>")
-        self.tx_items.append({"t": seg.t0, "who": lab.who, "txt": txt, "replay": replay,
-                              "voice_change": lab.voice_change})
-        self.transcript.append(self.tx_html(self.tx_items[-1]))
+        item = {"t": seg.t0, "who": lab.who, "txt": txt, "replay": replay, "voice_change": lab.voice_change}
+        last = next((it["t"] for it in reversed(self.tx_items) if "who" in it), -1e9)
+        if seg.t0 >= last and not self.gaps_before(seg.t0, last):
+            self.tx_items.append(item)
+            self.transcript.append(self.tx_html(item))
+        else:
+            # filling a missed stretch (or after a jump): the line goes where it belongs in time
+            self.tx_items.append(item)
+            self.tx_dirty = True
         info = lab.chair_info
         if info.get("floor"):
             role, name, limit = info["floor"]
@@ -1563,7 +1711,7 @@ class Main(QMainWindow):
             inc["offender"] = off = self.person(inc["offender"])
             t, kind, quote, expl, conf = inc["t"], inc["kind"], inc["quote"], inc["explanation"], inc["conf"]
             label, article, _ = KINDS.get(kind, KINDS["disorder"])
-            if not off or off == CHAIR:
+            if not off or off == CHAIR or self.chairing(off, t):
                 continue
             if inc.get("dismissed"):
                 # the user heard it differently (e.g. a misheard word): no measure, ladder not advanced
@@ -1643,6 +1791,8 @@ class Main(QMainWindow):
             return (f"<p style='color:#888'><i>── aplikacija ponovo otvorena – nastavak sesije od "
                     f"{fmt_time(it['resume'])} ──</i></p>")
         who = self.tracker.final_name(it["who"])
+        if who != CHAIR and self.chairing(who, it["t"]):
+            who = CHAIR
         color = "#e67e22" if who == CHAIR else ("#5dade2" if not it["voice_change"] else "#bb8fce")
         shown = self.chair_label(it["t"]) if who == CHAIR else who
         tag = self.party_tag(who)
@@ -1650,6 +1800,19 @@ class Main(QMainWindow):
         return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(shown)}</b>{tag}<b "
                 f"style='color:{color}'>:</b> {it['txt']}"
                 + (" <span style='color:#aaa'>(već ocenjeno)</span>" if it["replay"] else ""))
+
+    def chairing(self, name, t):
+        """Was `name` the one chairing at moment t? The chair is never an offender for what he says while
+        chairing (e.g. the Speaker's voice was named "Aleksandar Čupić" by his face - his chairing must not
+        become heckling with fines)."""
+        if not name or name == CHAIR:
+            return name == CHAIR
+        who = self.tracker.chair.at(t) or self.tracker.chair.person
+        if who:
+            return self.same_person(who, name)     # someone else chairs: he may speak as an MP
+        # nobody known in the chair at t: the Speaker / a deputy who is talking is chairing
+        from chair import ROLES
+        return any(self.same_person(r, name) for r in ROLES)
 
     def chair_label(self, t):
         p = self.tracker.chair.at(t)
@@ -1695,7 +1858,7 @@ class Main(QMainWindow):
             sg["chair"] = sg["who"] == CHAIR
         self.rebuild_measures()
         self.refresh_stats()
-        self.render(self.transcript, "".join(f"<p style='margin:0'>{self.tx_html(it)}</p>" for it in self.tx_items))
+        self.render_transcript()
         self.render_rhetoric()
         self.render_facts()
         self.groups_dirty = True
@@ -2027,7 +2190,7 @@ class Main(QMainWindow):
                 r["udaljenje"] = int(rec.udaljenje)
                 r["fine"] = rec.fine_pct
         for x in self.rhetoric:
-            r = row(x["speaker"])
+            r = None if self.chairing(self.person(x["speaker"]), x["t"]) else row(x["speaker"])
             if r:
                 r["manipulation"] += 1
                 r["_tech"][x["technique"]] += 1
@@ -2058,6 +2221,40 @@ class Main(QMainWindow):
             r["group"] = "" if g == "Nepoznato" else g
         return out
 
+    def context_html(self, t, quote, before=2, after=1):
+        """The transcript lines around a quoted sentence (who said what just before and after), the quoted line
+        in bold - a quote alone ("se. Nadam se da se svi slažu.") says nothing. Measures are stamped with the
+        judge's batch time, so the line is found by its words among the lines of the ~45 s before."""
+        import bisect
+        segs = self.segments
+        if not segs:
+            return ""
+        lo = bisect.bisect_left(segs, t - 45, key=lambda g: g["t0"])
+        hi = bisect.bisect_right(segs, t + 5, key=lambda g: g["t0"])
+        words = {w for w in fold_text(quote).split() if len(w) > 2}
+        best, score = None, 0.0
+        for i in range(lo, hi):
+            gw = set(fold_text(segs[i]["text"]).split())
+            s = len(words & gw) / max(1, len(words))
+            if s > score:
+                best, score = i, s
+        if best is None or score < 0.3:
+            best = max(lo, min(hi, len(segs)) - 1)
+        rows = []
+        for i in range(max(0, best - before), min(len(segs), best + after + 1)):
+            g = segs[i]
+            who = self.tracker.final_name(g["who"])
+            if who != CHAIR and self.chairing(who, g["t0"]):
+                who = CHAIR
+            shown = self.chair_label(g["t0"]) if who == CHAIR else who
+            txt = html.escape(g["text"])
+            if i == best:
+                txt = f"<b>{txt}</b>"
+            rows.append(f"<span style='color:#999'>[{fmt_time(g['t0'])}]</span> "
+                        f"<span style='color:#5b7fa6'>{html.escape(shown)}:</span> {txt}")
+        return ("<div style='margin:0 0 4px 22px;padding:2px 6px;border-left:2px solid #d0d5df;color:#333;"
+                "font-size:small'>" + "<br>".join(rows) + "</div>")
+
     def show_rank_detail(self, row, col):
         """Click on a ranking cell: the sentences behind that number (name/group column: everything)."""
         it = self.table.item(row, 0)
@@ -2080,9 +2277,10 @@ class Main(QMainWindow):
                 if (t, quote) in seen:
                     continue
                 seen.add((t, quote))
-                out.append(f"<p style='margin:2px 0 2px 8px'>{self.tlink(t)} <i>„{html.escape(quote)}“</i>"
+                out.append(f"<p style='margin:6px 0 1px 8px'>{self.tlink(t)} <i>„{html.escape(quote)}“</i>"
                            f" <span style='color:#666'>– {html.escape(label)}"
                            + (f": {html.escape(expl[:220])}" if expl else "") + "</span></p>")
+                out.append(self.context_html(t, quote))
         if len(out) == 1:
             out.append("<p style='color:#888'>Nema zabeleženih rečenica za ovu kolonu.</p>")
         self.rank_detail.setHtml("".join(out))
