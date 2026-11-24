@@ -237,8 +237,10 @@ class SpeakerTracker:
             limit = None
         if lv and lv != CHAIR and t - lt < 10:
             v = self.voices.get(lv)
-            if v is not None and (v.anon or not (self.turn and self.turn.confirmed)) \
-                    and _compatible(v.gender, gender):
+            # an unnamed voice gets the name. A voice that already has a name is NOT renamed here: that renamed
+            # all its lines, back to the start (a caption for Vučić turned the real Krizmanić's earlier speech
+            # into Vučić's too) - the app splits such a voice line by line (Main.conflict_evidence)
+            if v is not None and v.anon and _compatible(v.gender, gender):
                 self._rename(lv, name, force=True)              # this voice is that person
         turn = self.start_turn(name, role, t if not self.turn or self.turn.name != name else self.turn.since,
                                limit=limit, source="caption", party=party, gender=gender)
