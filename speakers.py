@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 import names
-from common import to_latin
+from common import log, to_latin
 from chair import ChairTracker
 from rules import LIMITS, limit_key, parse_chair
 
@@ -153,10 +153,20 @@ class SpeakerTracker:
             self.voices[name] = Voice(name)
         return self.voices[name]
 
-    def _rename(self, old, new):
-        """Voice `old` turns out to be `new` (merge if `new` already has a voice)."""
+    def _rename(self, old, new, force=False):
+        """Voice `old` turns out to be `new` (merge if `new` already has a voice). Returns False if refused.
+
+        Two well-learned voiceprints that clearly differ are never merged (unless forced by on-screen evidence):
+        one wrong guess (e.g. Claude taking the MP someone addresses - "gospodine Krizmaniću" - for the speaker)
+        would otherwise give that MP's name to another person's voice for the rest of the session."""
         if old == new or old not in self.voices:
-            return
+            return False
+        if new in self.voices and not force:
+            a, b = self.voices[old], self.voices[new]
+            if a.centroid is not None and b.centroid is not None and a.n >= 3 and b.n >= 3                     and float(np.dot(a.centroid, b.centroid)) < self.thr:
+                log(f"voices: not merging {old} into {new} (different voices, "
+                    f"{float(np.dot(a.centroid, b.centroid)):.2f})")
+                return False
         self.aliases[old] = new
         v = self.voices.pop(old)
         if new in self.voices:
@@ -177,6 +187,7 @@ class SpeakerTracker:
             self.last_voice = (new, self.last_voice[1])
         if self.on_rename:
             self.on_rename(old, new)
+        return True
 
     def start_turn(self, name, role, t, limit=None, source="chair", party="", gender=None):
         name = self.canonical(name)
@@ -213,7 +224,7 @@ class SpeakerTracker:
         if self.turn and self.turn.name.startswith("Govornik ") and self.turn.name in self.voices \
                 and t - self.turn.since < 60:
             # floor was given without a name we understood - the caption tells who it is
-            self._rename(self.turn.name, name)
+            self._rename(self.turn.name, name, force=True)
             self.turn.confirmed, self.turn.source = True, "caption"
             self.turn.party = party or self.turn.party
             self.turn.gender = gender or self.turn.gender
@@ -228,7 +239,7 @@ class SpeakerTracker:
             v = self.voices.get(lv)
             if v is not None and (v.anon or not (self.turn and self.turn.confirmed)) \
                     and _compatible(v.gender, gender):
-                self._rename(lv, name)                          # this voice is that person
+                self._rename(lv, name, force=True)              # this voice is that person
         turn = self.start_turn(name, role, t if not self.turn or self.turn.name != name else self.turn.since,
                                limit=limit, source="caption", party=party, gender=gender)
         turn.confirmed, turn.source = True, "caption"
@@ -274,7 +285,7 @@ class SpeakerTracker:
                 continue
             v.chair_marks += 1
             if v.name.startswith(ANON) or (v.name.startswith("Govornik ") and s >= self.thr + 0.05):
-                self._rename(nm, CHAIR)
+                self._rename(nm, CHAIR, force=True)
                 if self.turn and self.turn.name == CHAIR:
                     self.turn = None             # that "speaker" was the chair all along
 
@@ -308,6 +319,10 @@ class SpeakerTracker:
     def label(self, seg):
         info = parse_chair(seg.text)
         floor = self._floor(seg.text)
+        prev = getattr(self, "prev_chair", None)
+        if not floor and prev and seg.t0 - prev[1] < 2.5:
+            # Whisper split the announcement: "... sledeći na redu. Aleksandar." + "Vučić ima reč."
+            floor = self._floor(prev[0] + " " + seg.text)
         if floor:
             info["floor"] = floor[:3]
             info["chair"] = True
@@ -334,6 +349,7 @@ class SpeakerTracker:
             chair_v.add(seg.emb if ok else None, seg.db, seg.f0)   # no grammar votes: the chair talks about others
             chair_v.last_t = seg.t1
             self.last_any = (CHAIR, seg.t1)
+            self.prev_chair = (seg.text, seg.t1)
             self.chair.observe(seg.text, True, seg.t0)
             lat = to_latin(seg.text)
             if floor:

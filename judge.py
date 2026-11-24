@@ -119,7 +119,10 @@ HOW TO JUDGE
 - "quote" must be copied from the NOVO lines. "offender" is the speaker label exactly as written on that line,
   unless the text reveals the person's real name (e.g. the chair says "molim poslanicu Anu Anić da ne
   dobacuje" -> offender "Ana Anić"; give names in the nominative).
-- speaker_names: if the text reveals who is behind a voice label (Glas N / Govornik N), map it.
+- speaker_names: if the text reveals who is behind a voice label (Glas N / Govornik N), map it. Only from what
+  identifies the SPEAKER (the chair giving them the floor, "ja, kao ...", others answering "kolega X je rekao").
+  A name the label itself says to someone ("gospodine X", "uvaženi X", "vi, X, ste ...") is the person being
+  ADDRESSED - never the speaker. If unsure, leave the label out.
 
 RHETORIC (information for viewers, never a breach by itself) - for every speaker in NOVO (not the chair):
 - tone: one overall tone of what they said in NOVO.
