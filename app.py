@@ -905,7 +905,7 @@ class Main(QMainWindow):
     def coverage(self):
         """Merged [from, to] stretches that were listened to."""
         out = []
-        for a, b in sorted((iv[0], iv[1]) for iv in self.covered if iv[1] > iv[0]):
+        for a, b in sorted((iv[0], iv[1]) for iv in getattr(self, "covered", []) if iv[1] > iv[0]):
             if out and a <= out[-1][1] + 3:
                 out[-1][1] = max(out[-1][1], b)
             else:
