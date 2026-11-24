@@ -31,6 +31,47 @@ th{background:#eef} .big{font-size:20pt;font-weight:bold} .muted{color:#888}
 LEGAL_COLORS = {"verovatno": "#c0392b", "moguće": "#d4a017"}
 
 
+# ranking columns: (key, header, tooltip)
+RANK_COLS = [
+    ("name", "Poslanik", "Klik na naslov kolone: rang po toj koloni. Pređi mišem preko reda: koji prekršaji i "
+                         "koje tehnike."),
+    ("group", "Grupa", "Poslanička grupa"),
+    ("breaches", "Pre-\nkršaji", "Sve povrede reda koje je sudija utvrdio (dovoljno sigurno, nisu poništene)"),
+    ("insults", "Uvrede", "Uvredljivi izrazi, psovke, iznošenje privatnog života (čl. 107, 109 al. 6-7)"),
+    ("heckling", "Dobac.", "Dobacivanje i govor bez dobijene reči"),
+    ("warnings", "Upoz.", "Upozorenja koja bi predsedavajući izrekao (čl. 110)"),
+    ("opomene", "Opo-\nmene", "Opomene (čl. 111) - svaka nosi novčanu kaznu"),
+    ("oduzimanje", "Oduz.\nreč", "Oduzimanje reči (čl. 112)"),
+    ("udaljenje", "Uda-\nljen", "Udaljenje sa sednice (čl. 113)"),
+    ("manipulation", "Manip.", "Manipulativne retoričke tehnike (napad na ličnost, etiketiranje, "
+                                        "relativizacija, optužbe bez dokaza...)"),
+    ("false", "Neta-\nčno", "Tvrdnje koje je provera na internetu ocenila kao netačne, i izjave koje protivreče "
+                         "zapisniku, ranijim izjavama ili pokazuju dvostruke aršine"),
+    ("aggressive", "Agres.\nton", "Delovi govora ocenjeni kao uvredljiv ili agresivan ton"),
+    ("fine", "Kazna", "Novčana kazna po čl. 114 (% osnovne plate)"),
+]
+FALSE_VERDICTS = ("netačno", "dvostruki aršini", "nedosledno ranijim izjavama", "suprotno zapisniku sednice")
+
+
+def ranking_html(rows):
+    """The ranking table for the report file (sorted by breaches, then measures, then manipulation)."""
+    if not rows:
+        return ""
+    rows = sorted(rows, key=lambda r: (-r["breaches"], -r["fine"], -r["manipulation"], -r["false"], r["name"]))
+    head = "".join(f"<th title='{esc(t)}'>{esc(h)}</th>" for _k, h, t in RANK_COLS)
+    body = []
+    for i, r in enumerate(rows, 1):
+        cells = []
+        for k, _h, _t in RANK_COLS:
+            v = r.get(k, "")
+            if isinstance(v, int):
+                v = (f"{v} %" if k == "fine" else str(v)) if v else ""
+            cells.append(f"<td>{esc(v)}</td>")
+        body.append(f"<tr><td>{i}.</td>{''.join(cells)}</tr>")
+    return ("<h2>Rang lista</h2><table border='1' cellspacing='0' cellpadding='4'>"
+            f"<tr><th>#</th>{head}</tr>{''.join(body)}</table>")
+
+
 def legal_html(legal):
     """Line under a fact / context check: lawsuit or criminal complaint possible? immunity? (information only)"""
     if not legal or legal.get("actionable", "ne") == "ne":

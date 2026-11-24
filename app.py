@@ -1,4 +1,5 @@
 """Virtuelni predsednik skupštine - live YouTube Assembly session -> transcript -> breaches of order -> measures."""
+import collections
 import datetime
 import html
 import json
@@ -144,6 +145,19 @@ class JumpSlider(QSlider):
                 e.accept()
                 return
         super().mousePressEvent(e)
+
+
+HALL = "Iz sale (nepoznati)"
+
+
+class NumItem(QTableWidgetItem):
+    """Table cell that sorts by its number (UserRole), not by its text."""
+
+    def __lt__(self, other):
+        a, b = self.data(Qt.ItemDataRole.UserRole), other.data(Qt.ItemDataRole.UserRole)
+        if isinstance(a, int) and isinstance(b, int):
+            return a < b
+        return super().__lt__(other)
 
 
 class Main(QMainWindow):
@@ -334,10 +348,19 @@ class Main(QMainWindow):
         self.cards = QTextBrowser()
         self.cards.setOpenExternalLinks(False)
         self.transcript = QTextBrowser()
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Poslanik", "Upozorenja", "Opomene", "Oduzeta reč", "Udaljen",
-                                              "Kazna (čl. 114)"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table = QTableWidget(0, len(report.RANK_COLS))
+        self.table.setHorizontalHeaderLabels([c[1] for c in report.RANK_COLS])
+        for j, c in enumerate(report.RANK_COLS):
+            self.table.horizontalHeaderItem(j).setToolTip(c[2])
+        hh = self.table.horizontalHeader()
+        hh.setMinimumSectionSize(30)
+        hh.setStretchLastSection(False)
+        self.table.setStyleSheet("QHeaderView::section { padding: 3px 4px; }")
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setVisible(True)            # row number = place on the list
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        self.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
         self.facts = QTextBrowser()
         self.chair = QTextBrowser()
         self.stats = QTextBrowser()
@@ -353,7 +376,7 @@ class Main(QMainWindow):
         self.transcript.setToolTip("Desni klik na red: proveri tvrdnju na internetu")
         self.tabs.addTab(self.cards, "Mere")
         self.tabs.addTab(self.transcript, "Transkript")
-        self.tabs.addTab(self.table, "Poslanici")
+        self.tabs.addTab(self.table, "Rang lista")
         self.tabs.addTab(self.facts, "Za proveru (tvrdnje)")
         self.tabs.addTab(self.chair, "Stvarni predsedavajući")
         self.tabs.addTab(self.stats, "Statistika")
@@ -1233,6 +1256,7 @@ class Main(QMainWindow):
         opomene and fines merge in the right order). Returns the measure of incident `new`, if any."""
         self.discipline = Discipline()
         self.app_measures, self.last_measure, cards, fresh = [], {}, [], None
+        self.counted = []               # breaches that count for the ranking (judged sure enough, not withdrawn)
         min_conf = self.s["min_confidence"]
         for inc in sorted(self.incidents, key=lambda x: x["t"]):
             inc["offender"] = off = self.person(inc["offender"])
@@ -1250,6 +1274,8 @@ class Main(QMainWindow):
                 # judged as a voice from the hall, later identified as the speaker himself: nobody heckles
                 # or speaks without the floor in his own turn
                 continue
+            if conf >= min_conf:
+                self.counted.append(inc)
             if off.startswith("Glas "):
                 # an unidentified voice from the hall: the chair can't sanction someone unknown either
                 if conf >= min_conf:
@@ -1394,6 +1420,7 @@ class Main(QMainWindow):
     def render_rhetoric(self):
         self.render(self.rhet, report.rhetoric_html(self.rhetoric, self.tones, self.tlink, self.person)
                     + report.context_html(self.claims, self.tlink))
+        self.refresh_table()
 
     # ---- profiles and wider context ------------------------------------------------------------------
     def ask_profile(self, name):
@@ -1487,6 +1514,7 @@ class Main(QMainWindow):
             if nxt:
                 nxt["status"] = "checking"
         self.render(self.facts, report.facts_html(self.claims, self.tlink))
+        self.refresh_table()
 
     def on_fact(self, cid, res):
         if res.pop("_src", None) is not self.facter:
@@ -1606,7 +1634,8 @@ class Main(QMainWindow):
                               self.tracker.chair.at),
             report.rhetoric_html(self.rhetoric, self.tones, tl, self.person)
             + report.context_html(self.claims, tl),
-            report.facts_html(self.claims, tl) + report.groups_html(self.group_stats())
+            report.ranking_html(self.ranking())
+            + report.facts_html(self.claims, tl) + report.groups_html(self.group_stats())
             + report.profiles_html({k: v for k, v in self.profiles.items() if v}),
             f"Claude trošak ${jc + fc:.3f}")
         with open(path, "w", encoding="utf-8") as f:
@@ -1633,14 +1662,87 @@ class Main(QMainWindow):
                           f"{html.escape(target)} – „{html.escape(quote[:140])}“ {mark}")
         self._log({"type": "real_chair", "t": t, "measure": measure, "target": target, "quote": quote})
 
+    def ranking(self):
+        """One row per person: breaches, measures, manipulation, false claims, tone (report.RANK_COLS)."""
+        rows = {}
+
+        def row(name):
+            name = self.person(name)
+            if not name or name == CHAIR:
+                return None
+            if name.startswith("Glas "):
+                name = HALL                      # unidentified voices from the hall: one row, not one per voice
+            return rows.setdefault(name, {"name": name, **{c[0]: 0 for c in report.RANK_COLS[2:]},
+                                          "_tech": collections.Counter(), "_kinds": collections.Counter()})
+        for inc in getattr(self, "counted", []):
+            r = row(inc["offender"])
+            if r:
+                r["breaches"] += 1
+                r["_kinds"][inc["kind"]] += 1
+                r["insults"] += inc["kind"] in ("insult", "profanity", "private_life")
+                r["heckling"] += inc["kind"] in ("heckling", "no_floor")
+        for rec in self.discipline.mps.values():
+            r = row(rec.name)
+            if r:
+                r["warnings"] = sum(rec.warnings.values())
+                r["opomene"] = rec.opomene
+                r["oduzimanje"] = int(rec.oduzimanje)
+                r["udaljenje"] = int(rec.udaljenje)
+                r["fine"] = rec.fine_pct
+        for x in self.rhetoric:
+            r = row(x["speaker"])
+            if r:
+                r["manipulation"] += 1
+                r["_tech"][x["technique"]] += 1
+        for c in self.claims:
+            res = c.get("result") or {}
+            if res.get("verdict") in report.FALSE_VERDICTS:
+                r = row(c.get("speaker", ""))
+                if r:
+                    r["false"] += 1
+        for x in self.tones:
+            if x["tone"] in ("uvredljiv", "agresivan"):
+                r = row(x["speaker"])
+                if r:
+                    r["aggressive"] += 1
+        out = [r for r in rows.values() if any(r[c[0]] for c in report.RANK_COLS[2:])]
+        for r in out:
+            g = "" if r["name"] == HALL else self.group_of(r["name"]) or ""
+            r["group"] = "" if g == "Nepoznato" else g
+        return out
+
     def refresh_table(self):
-        rows = sorted(self.discipline.mps.values(), key=lambda r: (-r.fine_pct, -r.opomene, r.name))
+        rows = self.ranking()
+        self.table.setSortingEnabled(False)                  # filling a sorted table scrambles the rows
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            vals = [r.name, sum(r.warnings.values()), r.opomene, "da" if r.oduzimanje else "",
-                    "da" if r.udaljenje else "", f"{r.fine_pct} %" if r.fine_pct else ""]
-            for j, val in enumerate(vals):
-                self.table.setItem(i, j, QTableWidgetItem(str(val)))
+            tips = []
+            if r["_kinds"]:
+                tips.append("Prekršaji: " + ", ".join(f"{KINDS.get(k, (k,))[0]} ×{n}"
+                                                       for k, n in r["_kinds"].most_common()))
+            if r["_tech"]:
+                tips.append("Tehnike: " + ", ".join(f"{TECHNIQUES.get(k, k)} ×{n}"
+                                                     for k, n in r["_tech"].most_common()))
+            if r["group"]:
+                tips.insert(0, r["group"])                   # the group column is cut when long
+            tip = "\n".join(tips)
+            for j, (key, _h, _t) in enumerate(report.RANK_COLS):
+                v = r.get(key, "")
+                if isinstance(v, int):
+                    # numbers sort as numbers; 0 stays blank so the list reads at a glance
+                    it = NumItem((f"{v} %" if key == "fine" else str(v)) if v else "")
+                    it.setData(Qt.ItemDataRole.UserRole, v)
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    it = QTableWidgetItem(str(v))
+                if tip:
+                    it.setToolTip(tip)
+                self.table.setItem(i, j, it)
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSortIndicatorShown(False)   # the arrow would widen every column
+        self.table.resizeColumnsToContents()
+        if self.table.columnWidth(1) > 130:              # long group names: cut, full name in the tooltip
+            self.table.setColumnWidth(1, 130)
 
 
 def main():
