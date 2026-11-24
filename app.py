@@ -204,7 +204,7 @@ class Main(QMainWindow):
         self.b.caption.connect(self.on_caption)
         self.b.caption_local.connect(self.on_caption_local)
         self.b.face.connect(self.on_face)
-        report.LIST_OF = self.list_of            # every tab / report shows "Name (List)"
+        report.LIST_OF = self.party_and_list     # every tab / report shows "Name (SNS · List)"
         self.b.dvr_ready.connect(self.on_dvr_ready)
         self.b.timer.connect(self.on_timer)
         self.b.fact.connect(self.on_fact)
@@ -413,7 +413,7 @@ class Main(QMainWindow):
         self.table.verticalHeader().setVisible(True)            # row number = place on the list
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(True)
-        self.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
+        self.table.sortByColumn(report.RANK_INFO, Qt.SortOrder.DescendingOrder)
         self.facts = QTextBrowser()
         self.chair = QTextBrowser()
         self.stats = QTextBrowser()
@@ -1561,7 +1561,7 @@ class Main(QMainWindow):
             return
         sym = {"F": "♀ ", "M": "♂ "}.get(turn.gender, "")
         self.sp_name.setText(sym + turn.name + ("  ✓" if turn.confirmed else ""))
-        lst = self.list_of(turn.name)
+        lst = self.party_and_list(turn.name)
         bits = [b for b in (turn.role, lst or (to_latin(turn.party) if turn.party else "")) if b]
         src = {"chair": "najavio predsedavajući", "caption": "ime sa ekrana (potvrđeno)", "voice": "po glasu",
                "face": "prepoznat po licu"}
@@ -2065,16 +2065,24 @@ class Main(QMainWindow):
         g = self.group_of(name)
         return "" if not g or g == "Nepoznato" else g
 
+    def party_of(self, name):
+        """Party abbreviation from the Assembly's roster (SNS, SVM-VMSZ...), '' = no party / unknown."""
+        if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ", "Iz sale")):
+            return ""
+        mp = names.roster_lookup(self.tracker.final_name(name) if getattr(self, "tracker", None) else name)
+        return mp["party"] if mp and mp.get("party") not in (None, "", "-") else ""
+
+    def party_and_list(self, name):
+        return " · ".join(x for x in (self.party_of(name), self.list_of(name)) if x)
+
     def party_tag(self, name):
         """The list a speaker sits for, short, for the transcript and subtitles ("Srbija pobeđuje"). An unknown
         group falls back to the party (SVM...). '' for unknown voices."""
         if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ")):
             return ""
         g = self.list_of(name)
-        if g:
-            return self.GROUP_SHORT.get(g.lower(), g if len(g) <= 28 else g[:26] + "…")
-        mp = names.roster_lookup(name)
-        return mp["party"] if mp and mp.get("party") not in (None, "", "-") else ""
+        lst = self.GROUP_SHORT.get(g.lower(), g if len(g) <= 28 else g[:26] + "…") if g else ""
+        return " · ".join(x for x in (self.party_of(name), lst) if x)
 
     def group_of(self, name):
         """Parliamentary group of a speaker: roster first, then what the on-screen caption said."""
@@ -2182,7 +2190,7 @@ class Main(QMainWindow):
                 return None
             if name.startswith("Glas "):
                 name = HALL                      # unidentified voices from the hall: one row, not one per voice
-            return rows.setdefault(name, {"name": name, **{c[0]: 0 for c in report.RANK_COLS[2:]},
+            return rows.setdefault(name, {"name": name, **{c[0]: 0 for c in report.RANK_COLS[report.RANK_INFO:]},
                                           "_tech": collections.Counter(), "_kinds": collections.Counter(),
                                           "_items": collections.defaultdict(list)})
         for inc in getattr(self, "counted", []):
@@ -2245,11 +2253,12 @@ class Main(QMainWindow):
                              and x["t"] - self.s["judge_every_s"] - 10 <= g["t0"] <= x["t"] + 1]
                     for g in lines or [{"t0": x["t"], "text": ""}]:
                         r["_items"]["aggressive"].append((g["t0"], g["text"], f"ton: {x['tone']}", ""))
-        out = [r for r in rows.values() if any(r[c[0]] for c in report.RANK_COLS[2:])]
+        out = [r for r in rows.values() if any(r[c[0]] for c in report.RANK_COLS[report.RANK_INFO:])]
         self._rank_rows = {r["name"]: r for r in out}
         for r in out:
             g = "" if r["name"] == HALL else self.group_of(r["name"]) or ""
             r["group"] = "" if g == "Nepoznato" else g
+            r["party"] = "" if r["name"] == HALL else self.party_of(r["name"])
         return out
 
     def context_html(self, t, quote, before=2, after=1):
@@ -2293,9 +2302,9 @@ class Main(QMainWindow):
         if not r:
             return
         key, head, _tip = report.RANK_COLS[col]
-        keys = [k for k, _h, _t in report.RANK_COLS[2:]] if col < 2 else [key]
+        keys = [k for k, _h, _t in report.RANK_COLS[report.RANK_INFO:]] if col < report.RANK_INFO else [key]
         out = [f"<h3 style='margin:4px 0'>{html.escape(r['name'])}"
-               + (f" – {html.escape(report.col_title(head))}" if col >= 2 else "") + "</h3>"]
+               + (f" – {html.escape(report.col_title(head))}" if col >= report.RANK_INFO else "") + "</h3>"]
         for k in keys:
             items = r["_items"].get(k, [])
             if not items:
@@ -2348,8 +2357,9 @@ class Main(QMainWindow):
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSortIndicatorShown(False)   # the arrow would widen every column
         self.table.resizeColumnsToContents()
-        if self.table.columnWidth(1) > 130:              # long group names: cut, full name in the tooltip
-            self.table.setColumnWidth(1, 130)
+        gcol = next(j for j, c in enumerate(report.RANK_COLS) if c[0] == "group")
+        if self.table.columnWidth(gcol) > 130:           # long list names: cut, full name in the tooltip
+            self.table.setColumnWidth(gcol, 130)
 
 
 def main():

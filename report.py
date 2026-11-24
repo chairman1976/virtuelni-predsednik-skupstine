@@ -35,7 +35,8 @@ LEGAL_COLORS = {"verovatno": "#c0392b", "moguće": "#d4a017"}
 RANK_COLS = [
     ("name", "Poslanik", "Klik na naslov kolone: rang po toj koloni. Pređi mišem preko reda: koji prekršaji i "
                          "koje tehnike."),
-    ("group", "Grupa", "Poslanička grupa"),
+    ("party", "Stranka", "Stranka poslanika (sa spiska Narodne skupštine); prazno = bez stranačke pripadnosti"),
+    ("group", "Lista / grupa", "Poslanička grupa = lista sa koje je poslanik izabran"),
     ("breaches", "Pre-\nkršaji", "Sve povrede reda koje je sudija utvrdio (dovoljno sigurno, nisu poništene)"),
     ("insults", "Uvrede", "Uvredljivi izrazi, psovke, iznošenje privatnog života (čl. 107, 109 al. 6-7)"),
     ("heckling", "Dobac.", "Dobacivanje i govor bez dobijene reči"),
@@ -55,6 +56,9 @@ RANK_COLS = [
 def col_title(h):
     """A two-line column header as one line: "Pre-" + "kršaji" -> "Prekršaji", "Oduz." + "reč" -> "Oduz. reč"."""
     return h.replace("-\n", "").replace("\n", " ")
+
+
+RANK_INFO = 3          # name, party, group - the rest are counts
 
 
 FALSE_VERDICTS = ("netačno", "dvostruki aršini", "nedosledno ranijim izjavama", "suprotno zapisniku sednice")
@@ -95,12 +99,12 @@ def esc(x):
     return html.escape(str(x))
 
 
-# name -> electoral list / parliamentary group ("Studentska lista"...); set by the app (Main.list_of)
+# name -> "party · list" ("SNS · Aleksandar Vučić - Srbija pobeđuje", "Studentska lista"); set by the app
 LIST_OF = None
 
 
 def person_html(name, bold=False):
-    """A person's name with the list he/she sits for: "Jovo Bakić (Studentska lista)"."""
+    """A person's name with party and list: "Milovan Drecun (SNS · Aleksandar Vučić - Srbija pobeđuje)"."""
     if not name:
         return ""
     n = f"<b>{esc(name)}</b>" if bold else esc(name)
