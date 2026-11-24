@@ -95,6 +95,19 @@ def esc(x):
     return html.escape(str(x))
 
 
+# name -> electoral list / parliamentary group ("Studentska lista"...); set by the app (Main.list_of)
+LIST_OF = None
+
+
+def person_html(name, bold=False):
+    """A person's name with the list he/she sits for: "Jovo Bakić (Studentska lista)"."""
+    if not name:
+        return ""
+    n = f"<b>{esc(name)}</b>" if bold else esc(name)
+    lst = LIST_OF(name) if LIST_OF else ""
+    return n + (f" <span style='color:#888;font-weight:normal'>({esc(lst)})</span>" if lst else "")
+
+
 def _fine(measures):
     fams = [FAMILY.get(m, "") for m in measures]
     if "udaljenje" in fams:
@@ -194,26 +207,26 @@ def stats_html(real, app, same_person, tlink, canon, chair_at=None):
             c = collections.Counter(FAMILY_LABEL.get(FAMILY.get(m, ""), m) for m in ms)
             return ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in c.items()) or "–"
         fr, fa = _fine(r), _fine(a)
-        out.append(f"<tr><td>{esc(name)}</td><td>{esc(fmt(r))}</td><td>{f'{fr} %' if fr else ''}</td>"
+        out.append(f"<tr><td>{person_html(name)}</td><td>{esc(fmt(r))}</td><td>{f'{fr} %' if fr else ''}</td>"
                    f"<td>{esc(fmt(a))}</td><td>{f'{fa} %' if fa else ''}</td></tr>")
     out.append("</table>")
     if real_only:
         out.append("<h3>Izrekao predsedavajući, aplikacija nije</h3><ul>")
         for x in real_only:
             out.append(f"<li>{tlink(x['t'])} <b>{esc(FAMILY_LABEL.get(FAMILY.get(x['measure'], ''), x['measure']))}"
-                       f"</b> {esc(x.get('target') or '')} – „{esc(x.get('quote', '')[:120])}“</li>")
+                       f"</b> {person_html(x.get('target') or '')} – „{esc(x.get('quote', '')[:120])}“</li>")
         out.append("</ul>")
     if app_only:
         out.append("<h3>Propusti predsedavajućeg (izrekla aplikacija, predsedavajući nije)</h3><ul>")
         for x in app_only:
             out.append(f"<li>{tlink(x['t'])} <b>{esc(FAMILY_LABEL.get(FAMILY.get(x['measure'], ''), x['measure']))}"
-                       f"</b> {esc(x['offender'])} – {esc(x.get('label', ''))}: „{esc(x.get('quote', '')[:120])}“</li>")
+                       f"</b> {person_html(x['offender'])} – {esc(x.get('label', ''))}: „{esc(x.get('quote', '')[:120])}“</li>")
         out.append("</ul>")
     if pairs:
         out.append("<h3>Poklapanja</h3><ul>")
         for r, a in pairs:
             out.append(f"<li>{tlink(r['t'])} {esc(FAMILY_LABEL.get(FAMILY.get(r['measure'], ''), ''))} – "
-                       f"{esc(a['offender'])} ({esc(a.get('label', ''))})</li>")
+                       f"{person_html(a['offender'])} – {esc(a.get('label', ''))}</li>")
         out.append("</ul>")
     return "".join(out)
 
@@ -240,10 +253,10 @@ def rhetoric_html(rhetoric, tones, tlink, canon):
         tone = " ".join(f"<span style='color:{TONE_COLORS.get(k, '#444')}'>{esc(k)} ×{v}</span>"
                         for k, v in tc.most_common())
         tech = "<br>".join(f"{esc(TECHNIQUES.get(k, k))} ×{v}" for k, v in kc.most_common())
-        out.append(f"<tr><td><b>{esc(name)}</b></td><td>{tone}</td><td>{tech}</td></tr>")
+        out.append(f"<tr><td>{person_html(name, True)}</td><td>{tone}</td><td>{tech}</td></tr>")
     out.append("</table><h3>Primeri</h3>")
     for x in sorted(rhetoric, key=lambda r: r["t"], reverse=True)[:80]:
-        out.append(f"<p>{tlink(x['t'])} <b>{esc(canon(x['speaker']))}</b> – "
+        out.append(f"<p>{tlink(x['t'])} {person_html(canon(x['speaker']), True)} – "
                    f"<span style='color:#7d3c98'>{esc(TECHNIQUES.get(x['technique'], x['technique']))}</span>: "
                    f"„{esc(x['quote'][:160])}“<br><span class='muted'>{esc(x['explanation'])}</span></p>")
     return "".join(out)
@@ -256,7 +269,7 @@ def facts_html(claims, tlink):
         return CSS + "<p class='muted'>Još nema tvrdnji za proveru.</p>"
     for c in sorted(claims, key=lambda x: x["t"], reverse=True):
         res = c.get("result")
-        out.append(f"<p>{tlink(c['t'])} <b>{esc(c['speaker'])}</b>: „{esc(c['claim'])}“<br>")
+        out.append(f"<p>{tlink(c['t'])} {person_html(c['speaker'], True)}: „{esc(c['claim'])}“<br>")
         if res:
             col = VERDICT_COLORS.get(res["verdict"], "#444")
             note = (" <span class='muted'>(ocena korisnika)</span>" if res.get("user") else ""
@@ -382,7 +395,7 @@ def context_html(items, tlink):
                                "provera konteksta (dvostruki aršini, ranije izjave, zapisnik sednice).</p>")
     for c in sorted(items, key=lambda x: x["t"], reverse=True):
         res = c.get("result")
-        out.append(f"<p>{tlink(c['t'])} <b>{esc(c['speaker'])}</b> <span class='muted'>({esc(c.get('why', ''))})"
+        out.append(f"<p>{tlink(c['t'])} {person_html(c['speaker'], True)} <span class='muted'>({esc(c.get('why', ''))})"
                    f"</span>: „{esc(c['claim'][:200])}“<br>")
         if res:
             col = CONTEXT_COLORS.get(res["verdict"], "#444")
@@ -405,7 +418,7 @@ def profiles_html(profs):
                               "pretraga interneta, jednom po poslaniku, čuva se u data/profiles).</p>"
     for name, p in profs.items():
         if p is None:
-            out.append(f"<h3>{esc(name)}</h3><p class='muted'>pravim profil…</p>")
+            out.append(f"<h3>{person_html(name)}</h3><p class='muted'>pravim profil…</p>")
             continue
         out.append(f"<h3>{esc(p['name'])}</h3><p><span class='muted'>{esc(p.get('party_and_group', ''))}</span><br>"
                    f"{esc(p.get('summary', ''))}</p>")

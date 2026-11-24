@@ -204,6 +204,7 @@ class Main(QMainWindow):
         self.b.caption.connect(self.on_caption)
         self.b.caption_local.connect(self.on_caption_local)
         self.b.face.connect(self.on_face)
+        report.LIST_OF = self.list_of            # every tab / report shows "Name (List)"
         self.b.dvr_ready.connect(self.on_dvr_ready)
         self.b.timer.connect(self.on_timer)
         self.b.fact.connect(self.on_fact)
@@ -1349,7 +1350,7 @@ class Main(QMainWindow):
         info = lab.chair_info
         if info.get("floor"):
             role, name, limit = info["floor"]
-            self.chair.append(f"{self.tlink(seg.t0)} <b>daje reč:</b> {html.escape(name)}"
+            self.chair.append(f"{self.tlink(seg.t0)} <b>daje reč:</b> {report.person_html(name)}"
                               + (f" ({html.escape(role)})" if role else "")
                               + (f" – ograničenje {limit}" if limit else ""))
         if info.get("measure"):
@@ -1560,7 +1561,8 @@ class Main(QMainWindow):
             return
         sym = {"F": "♀ ", "M": "♂ "}.get(turn.gender, "")
         self.sp_name.setText(sym + turn.name + ("  ✓" if turn.confirmed else ""))
-        bits = [b for b in (turn.role, turn.party) if b]
+        lst = self.list_of(turn.name)
+        bits = [b for b in (turn.role, lst or (to_latin(turn.party) if turn.party else "")) if b]
         src = {"chair": "najavio predsedavajući", "caption": "ime sa ekrana (potvrđeno)", "voice": "po glasu",
                "face": "prepoznat po licu"}
         extra = []
@@ -1797,7 +1799,7 @@ class Main(QMainWindow):
         return (f"<table width='100%' cellspacing='0' cellpadding='6' style='margin:4px 0'><tr>"
                 f"<td width='6' bgcolor='{col}'></td><td>"
                 f"<b style='color:{col};font-size:13pt'>{html.escape(title)}</b> "
-                f"<b>{html.escape(offender)}</b> {self.tlink(t)}{undo}<br>"
+                f"{report.person_html(offender, True)} {self.tlink(t)}{undo}<br>"
                 f"{html.escape(label)} – <span style='color:#666'>{self.article_links(article)}</span>{fine_txt}{q}"
                 f"<br><span style='color:#444'>{html.escape(explanation)}</span></td></tr></table>")
 
@@ -2051,21 +2053,28 @@ class Main(QMainWindow):
             return
         self.set_status(f"Transkript sačuvan: {path} ({len(self.segments)} redova)")
 
-    GROUP_SHORT = {"studentska lista": "SL", "aleksandar vučić - srbija pobeđuje": "SNS-SP",
-                   "nisu članovi poslaničkih grupa": "nezavisni"}
+    # short list names for the transcript / subtitles (full names elsewhere)
+    GROUP_SHORT = {"studentska lista": "Studentska lista", "aleksandar vučić - srbija pobeđuje": "Srbija pobeđuje",
+                   "nisu članovi poslaničkih grupa": "van poslaničkih grupa"}
+
+    def list_of(self, name):
+        """The electoral list / parliamentary group a person sits for (full name), '' if unknown / not an MP."""
+        if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ", "Iz sale")) \
+                or not getattr(self, "tracker", None):
+            return ""
+        g = self.group_of(name)
+        return "" if not g or g == "Nepoznato" else g
 
     def party_tag(self, name):
-        """Short party / group of a speaker for the transcript: the party (SNS, SVM...) if the roster has
-        one, else the parliamentary group (SL = Studentska lista...). '' for unknown voices."""
+        """The list a speaker sits for, short, for the transcript and subtitles ("Srbija pobeđuje"). An unknown
+        group falls back to the party (SVM...). '' for unknown voices."""
         if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ")):
             return ""
+        g = self.list_of(name)
+        if g:
+            return self.GROUP_SHORT.get(g.lower(), g if len(g) <= 28 else g[:26] + "…")
         mp = names.roster_lookup(name)
-        if mp and mp.get("party") and mp["party"] not in ("-", ""):
-            return mp["party"]
-        g = self.group_of(name)
-        if not g or g == "Nepoznato":
-            return ""
-        return self.GROUP_SHORT.get(g.lower(), "".join(w[0] for w in g.split() if len(w) > 2).upper()[:6])
+        return mp["party"] if mp and mp.get("party") not in (None, "", "-") else ""
 
     def group_of(self, name):
         """Parliamentary group of a speaker: roster first, then what the on-screen caption said."""
