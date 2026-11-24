@@ -100,10 +100,12 @@ class Player:
         if self.src["audio_url"] != self.src["video_url"]:
             urls.append(self.src["audio_url"])
         for u in urls:
-            if not live:
-                inputs += ["-re"]
-                if self.start_s > 0:
-                    inputs += ["-ss", f"{self.start_s:.2f}"]
+            # -re = read at playback speed. Needed for live too: YouTube live HLS arrives in 5 s bursts
+            # (measured: 15 s at once, then 5 s every 5 s), which made the picture jump and the sound skip
+            # (more than 2 s of audio backlog is dropped). Live then plays ~15 s behind the live edge.
+            inputs += ["-re"]
+            if not live and self.start_s > 0:
+                inputs += ["-ss", f"{self.start_s:.2f}"]
             if ua:
                 inputs += ["-user_agent", ua]
             inputs += ["-i", u]
