@@ -71,6 +71,7 @@ class Bridge(QObject):
     fact = pyqtSignal(int, object)
     profile = pyqtSignal(str, object)
     status = pyqtSignal(str)
+    agenda = pyqtSignal(object)
     resolved = pyqtSignal(object)
     failed = pyqtSignal(str)
     ended = pyqtSignal()
@@ -164,6 +165,7 @@ class Main(QMainWindow):
         self.ocr = None
         self.ocr_frame = None
         self.b.status.connect(self.set_status)
+        self.b.agenda.connect(self.on_agenda)
         self.b.resolved.connect(self.on_resolved)
         self.b.failed.connect(self.on_failed)
         self.b.ended.connect(lambda: self.set_status("Kraj snimka."))
@@ -248,7 +250,12 @@ class Main(QMainWindow):
         lbl_ag = QLabel("Tačka")
         lbl_ag.setProperty("muted", True)
         ag.addWidget(lbl_ag)
-        ag.addWidget(self.agenda)
+        ag.addWidget(self.agenda, 1)
+        self.agenda_box = QComboBox()
+        self.agenda_box.setMinimumWidth(320)
+        self.agenda_box.setVisible(False)
+        self.agenda_box.activated.connect(self.pick_agenda)
+        ag.addWidget(self.agenda_box)
         v.addLayout(ag)
 
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -382,7 +389,9 @@ class Main(QMainWindow):
                         "Hibrid: lokalni sudija (često, besplatno) + Claude za proveru činjenica i profile.\n"
                         "Claude model bez ključa automatski prelazi na lokalni.",
             self.vol: "Jačina zvuka prenosa (ne utiče na prepoznavanje govora).",
-            self.agenda: "Tačka dnevnog reda. Koristi se da se proceni da li govornik govori van teme (čl. 106).",
+            self.agenda: "Tačka dnevnog reda. Koristi se da se proceni da li govornik govori van teme (čl. 106).\n"
+                         "Na početku sesije aplikacija nađe dnevni red na internetu (desno); sudija prati koja se\n"
+                         "tačka raspravlja i prelazak na sledeću.",
             self.back_btn: "Nazad 30 sekundi (strelica ← = 10 s). Već ocenjeni delovi se ne kažnjavaju ponovo.",
             self.pause_btn: "Pauza / nastavak (razmak).",
             self.fwd_btn: "Napred 30 sekundi (strelica → = 10 s).",
@@ -553,6 +562,12 @@ class Main(QMainWindow):
             date = f"{m.group(1)}.{m.group(2)}.{m.group(3)}." if m else datetime.date.today().strftime("%d.%m.%Y.")
             self.facter = FactChecker(self.s, self.b.fact.emit, self.b.status.emit, date)
             self.facter.start()
+            import agenda as agenda_mod
+            self.agenda_hits = []
+            self.agenda_box.clear()
+            self.agenda_box.setVisible(False)
+            self.set_status("Tražim dnevni red sednice na internetu…")
+            agenda_mod.find_async(dict(self.s), src["title"], date, self.b.agenda.emit)
             if self.s.get("profiles", True):
                 from profiles import ProfileBuilder
                 self.profiler = ProfileBuilder(self.s, self.b.profile.emit, self.b.status.emit)
@@ -1056,8 +1071,40 @@ class Main(QMainWindow):
             mk = {"oduzimanje_reci": "oduzimanje"}.get(act, act)
             self.real_chair_measure(mk, a.get("target", ""), a.get("quote", ""), t)
         ag = (res.get("agenda_item") or "").strip()
-        if ag and not self.agenda.text().strip():
+        items = [self.agenda_box.itemData(i) for i in range(self.agenda_box.count())]
+        if ag and ag in items:
+            # the debate moved to another item: switch after two answers in a row agree (no flip-flopping)
+            self.agenda_hits = (getattr(self, "agenda_hits", []) + [ag])[-2:]
+            if ag != self.agenda.text().strip() and (not self.agenda.text().strip() or self.agenda_hits == [ag, ag]):
+                self.agenda.setText(ag)
+                self.agenda_box.setCurrentIndex(items.index(ag))
+                self._log({"type": "agenda_item", "t": t, "item": ag})
+        elif ag and not self.agenda.text().strip() and not items:
             self.agenda.setText(ag)
+
+    def on_agenda(self, res):
+        """The sitting's agenda, found on the internet: a pick list next to the Tačka field + context for the judge."""
+        if not res or not self.running:
+            self.set_status("Dnevni red nije pronađen na internetu - upiši tačku ili će je sudija prepoznati.")
+            return
+        items = sorted(res.get("items", []), key=lambda x: x.get("no", 0))
+        self.agenda_box.clear()
+        for it in items:
+            self.agenda_box.addItem(f"{it['no']}. {it['title']}", it["title"])
+        src = "\n".join(f"{s['title']} – {s['url']}" for s in res.get("sources", [])[:4])
+        self.agenda_box.setToolTip(f"Dnevni red: {res.get('session', '')}\nIzvori:\n{src}\n\n"
+                                   "Izaberi tačku koja se sada raspravlja.")
+        self.agenda_box.setVisible(True)
+        if self.judge:
+            self.judge.agenda_list = "\n".join(f"{it['no']}. {it['title']}" for it in items)
+        self._log({"type": "agenda", "session": res.get("session", ""), "items": items,
+                   "sources": res.get("sources", [])})
+        self.set_status(f"Dnevni red pronađen: {len(items)} tačaka ({res.get('session', '')}).")
+
+    def pick_agenda(self, i):
+        title = self.agenda_box.itemData(i)
+        if title:
+            self.agenda.setText(title)
 
     def person(self, name):
         """Final identity of a label or spelling: 'Govornik 3' -> 'Jovo Bakić' after he is recognised."""

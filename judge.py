@@ -143,6 +143,9 @@ RHETORIC (information for viewers, never a breach by itself) - for every speaker
 - PREDSEDAVAJUĆI is the person running the sitting (the Speaker or a deputy speaker). MPs addressing the chair
   ("gospodine predsedavajući", "predsedniče Čupiću", "potpredsednice Petrović") is NOT direct address to another
   MP and not a breach.
+- agenda_item: the agenda item being debated now. If DNEVNI RED SEDNICE is given, return the exact title of
+  one of its items - the current one, or the next one once the chair moves on ("prelazimo na ... tačku");
+  "" if it is not clear. Without a list: a short title if the text makes it clear, else "".
 - chair_person: full name of whoever is chairing if the text makes it clear (MPs address the chair by name, the
   chair says who takes over, "predsedavanje preuzima ..."); otherwise "". Never guess.
 - JAVNI PROFIL and ZAPISNIK are background for understanding spin and the situation (who blames whom, who is
@@ -255,6 +258,7 @@ class Judge(threading.Thread):
         self.cost = 0.0
         self.calls = 0
         self.agenda = ""
+        self.agenda_list = ""           # the sitting's whole agenda, found on the internet (agenda.py)
         self.speaker_info = ""
         self.chair_info = "nije još prepoznat"
         self.last_call = time.time()
@@ -374,7 +378,8 @@ class Judge(threading.Thread):
             return None
 
     def _judge(self, batch):
-        msg = (f"TAČKA DNEVNOG REDA: {self.agenda or 'nepoznata'}\n"
+        msg = ((f"DNEVNI RED SEDNICE:\n{self.agenda_list}\n" if self.agenda_list else "")
+               + f"TAČKA DNEVNOG REDA: {self.agenda or 'nepoznata'}\n"
                f"PREDSEDAVAJUĆI (ko vodi sednicu): {self.chair_info}\n"
                f"TRENUTNI GOVORNIK: {self.speaker_info or 'nepoznat'}\n\n"
                + (f"JAVNI PROFIL GOVORNIKA (pozadina, sa izvorima):\n{self.speaker_profile}\n\n"
