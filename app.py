@@ -2279,7 +2279,7 @@ class Main(QMainWindow):
                 seen.add((t, quote))
                 out.append(f"<p style='margin:6px 0 1px 8px'>{self.tlink(t)} <i>„{html.escape(quote)}“</i>"
                            f" <span style='color:#666'>– {html.escape(label)}"
-                           + (f": {html.escape(expl[:220])}" if expl else "") + "</span></p>")
+                           + (f": {html.escape(expl)}" if expl else "") + "</span></p>")
                 out.append(self.context_html(t, quote))
         if len(out) == 1:
             out.append("<p style='color:#888'>Nema zabeleženih rečenica za ovu kolonu.</p>")
