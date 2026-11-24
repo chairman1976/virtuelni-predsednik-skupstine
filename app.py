@@ -22,7 +22,7 @@ import sherpa_onnx  # noqa: E402,F401
 from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QObject, QRectF, Qt, QTimer, QUrl, pyqtSignal  # noqa: E402
 from PyQt6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter, QPainterPath  # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QMenu,  # noqa: E402
-                             QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
+                             QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QSizePolicy,
                              QSlider, QSplitter, QStyle, QStyleOptionSlider, QTableWidget, QTableWidgetItem,
                              QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -434,7 +434,26 @@ class Main(QMainWindow):
         self.tabs.addTab(self.profs, "Profili")
         split.addWidget(self.tabs)
         split.setSizes([820, 680])
-        v.addWidget(split, 1)
+        # left: sessions of the official channel (live + recordings), folds away behind a thin arrow
+        import ssl
+        import certifi
+        from common import CA_BUNDLE
+        from sessions_panel import SessionsPanel
+        ctx = ssl.create_default_context(cafile=CA_BUNDLE if os.path.exists(CA_BUNDLE) else certifi.where())
+        self.sessions = SessionsPanel(ctx)
+        self.sessions.chosen.connect(self.pick_session)
+        self.sess_btn = QPushButton()
+        self.sess_btn.setFixedWidth(18)
+        self.sess_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.sess_btn.setStyleSheet("QPushButton{padding:0;border-radius:4px;font-size:11px}")
+        self.sess_btn.clicked.connect(lambda: self.show_sessions(not self.sessions.isVisible()))
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        row.addWidget(self.sessions)
+        row.addWidget(self.sess_btn)
+        row.addWidget(split, 1)
+        v.addLayout(row, 1)
+        self.show_sessions(self.s.get("sessions_panel", True), save=False)
         self.setCentralWidget(root)
         self.cost_lbl = QLabel("")
         self.statusBar().addPermanentWidget(self.cost_lbl)
@@ -839,6 +858,34 @@ class Main(QMainWindow):
             self.paused = True
             self.pause_btn.setText("▶")
             self.set_status(f"Pauza na {fmt_time(self.paused_at)}")
+
+    def show_sessions(self, on, save=True):
+        self.sessions.setVisible(on)
+        self.sess_btn.setText("◀" if on else "▶")
+        self.sess_btn.setToolTip("Sakrij spisak sednica" if on else
+                                 "Spisak sednica sa kanala ParlamentSrbija (uživo i snimci)")
+        if on and not self.sessions.items and self.sessions.refresh_btn.isEnabled():
+            self.sessions.load()
+        if save:
+            self.s["sessions_panel"] = bool(on)
+            save_settings(self.s)
+
+    def pick_session(self, url, title, live):
+        """A session chosen in the left panel: play it from the start (a live one from now)."""
+        if self.running:
+            if self.s.get("last_url") == url:
+                self.show_sessions(False)
+                return
+            ans = QMessageBox.question(self, "Druga sednica",
+                                       f"Prekinuti praćenje i pustiti:\n{title}?\n\n(Trenutna sesija se čuva - "
+                                       "kad ponovo otvoriš taj video, možeš da je nastaviš.)")
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+            self.stop()
+        self.url.setText(url)
+        self.start_at.setText("0")
+        self.show_sessions(False)
+        self.start()
 
     def toggle_subtitles(self, on):
         self.s["subtitles"] = bool(on)
