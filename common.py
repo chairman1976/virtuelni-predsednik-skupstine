@@ -50,6 +50,7 @@ DEFAULTS = {
     "shout_db": 7.0,
     "voice_change_sim": 0.62,
     "caption_every_s": 60,
+    "subtitles": True,         # transcript as subtitles over the picture
     "faces": True,             # recognise MPs' faces on screen (official photos) - names unnamed voices
     "volume": 0.8,
     "last_url": "",

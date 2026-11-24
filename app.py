@@ -85,6 +85,7 @@ class Video(QWidget):
         super().__init__()
         self.img = None
         self.banner = None          # (lines, color, until)
+        self.subtitle = None        # (speaker label, text) - the line being heard now
         self.setMinimumSize(480, 270)
         self.setStyleSheet("background:#000")
 
@@ -109,6 +110,8 @@ class Video(QWidget):
         else:
             p.setPen(QColor("#8b93a7"))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Nalepi YouTube link sednice i pritisni Počni")
+        if self.subtitle and self.img is not None:
+            self._draw_subtitle(p, target, lift=bool(self.banner and time.time() < self.banner[2]))
         if self.banner and time.time() < self.banner[2]:
             lines, color, _ = self.banner
             w = self.width()
@@ -127,6 +130,33 @@ class Video(QWidget):
             for i, ln in enumerate(lines[1:]):
                 p.drawText(r.adjusted(14, 36 + 24 * i, -14, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, ln)
         p.end()
+
+
+    def _draw_subtitle(self, p, target, lift=False):
+        """Subtitle at the bottom of the picture: speaker (yellow) + what is being said, on a dark band."""
+        who, text = self.subtitle
+        size = max(11, int(target.height() / 24))
+        f_text, f_who = QFont("Segoe UI", size), QFont("Segoe UI", max(9, int(size * 0.75)), QFont.Weight.Bold)
+        maxw = target.width() * 0.9
+        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap)
+        p.setFont(f_text)
+        tb = p.boundingRect(QRectF(0, 0, maxw, 1000), flags, text)
+        p.setFont(f_who)
+        wb = p.boundingRect(QRectF(0, 0, maxw, 1000), flags, who) if who else QRectF()
+        width = max(tb.width(), wb.width()) + 24
+        height = tb.height() + wb.height() + 10
+        bottom = target.bottom() - (70 if lift else 10)
+        r = QRectF(target.center().x() - width / 2, bottom - height, width, height)
+        path = QPainterPath()
+        path.addRoundedRect(r, 6, 6)
+        p.fillPath(path, QColor(0, 0, 0, 175))
+        inner = r.adjusted(12, 5, -12, -5)
+        if who:                                          # speaker [party] in yellow, then the words
+            p.setPen(QColor("#ffd54a"))
+            p.drawText(QRectF(inner.left(), inner.top(), inner.width(), wb.height()), flags, who)
+        p.setFont(f_text)
+        p.setPen(QColor("#ffffff"))
+        p.drawText(QRectF(inner.left(), inner.top() + wb.height(), inner.width(), tb.height()), flags, text)
 
 
 class JumpSlider(QSlider):
@@ -249,6 +279,10 @@ class Main(QMainWindow):
         self.tr_btn.clicked.connect(self.save_transcript_dialog)
         self.posl_btn = QPushButton("Poslovnik")
         self.posl_btn.clicked.connect(self.toggle_poslovnik)
+        self.sub_btn = QPushButton("Titl")
+        self.sub_btn.setCheckable(True)
+        self.sub_btn.setChecked(self.s.get("subtitles", True))
+        self.sub_btn.toggled.connect(self.toggle_subtitles)
         self.poslovnik = None
         self.vol = QSlider(Qt.Orientation.Horizontal)
         self.vol.setRange(0, 100)
@@ -259,7 +293,7 @@ class Main(QMainWindow):
         for lb in (lbl_link, lbl_judge):
             lb.setProperty("muted", True)
         for w in (lbl_link, self.url, self.start_at, self.go, lbl_judge, self.model, keyb,
-                  self.report_btn, self.tr_btn, self.posl_btn,
+                  self.report_btn, self.tr_btn, self.posl_btn, self.sub_btn,
                   QLabel("🔊"), self.vol):
             top.addWidget(w)
         top.setStretch(1, 1)
@@ -381,7 +415,17 @@ class Main(QMainWindow):
         self.transcript.setToolTip("Desni klik na red: proveri tvrdnju na internetu")
         self.tabs.addTab(self.cards, "Mere")
         self.tabs.addTab(self.transcript, "Transkript")
-        self.tabs.addTab(self.table, "Rang lista")
+        self.rank_detail = QTextBrowser()
+        self.rank_detail.setOpenLinks(False)
+        self.rank_detail.anchorClicked.connect(self.on_link)
+        self.rank_detail.setHtml("<p style='color:#888'>Klik na ćeliju: rečenice na koje se broj odnosi "
+                                 "(klik na vreme vraća snimak na taj trenutak).</p>")
+        self.table.cellClicked.connect(self.show_rank_detail)
+        rank_split = QSplitter(Qt.Orientation.Vertical)
+        rank_split.addWidget(self.table)
+        rank_split.addWidget(self.rank_detail)
+        rank_split.setSizes([300, 260])
+        self.tabs.addTab(rank_split, "Rang lista")
         self.tabs.addTab(self.facts, "Za proveru (tvrdnje)")
         self.tabs.addTab(self.chair, "Stvarni predsedavajući")
         self.tabs.addTab(self.stats, "Statistika")
@@ -407,6 +451,7 @@ class Main(QMainWindow):
         tips = {
             self.url: "Link YouTube prenosa ili snimka sednice Narodne skupštine (npr. kanal ParlamentSrbija).",
             self.go: "Počni / zaustavi praćenje. Na zaustavljanje se izveštaj i transkript snimaju automatski.",
+            self.sub_btn: "Transkript kao titl preko slike: ko govori (i stranka) i šta upravo govori.",
             self.posl_btn: "Otvori ceo Poslovnik Narodne skupštine u bočnom panelu (pretraga, sadržaj, skok na član).\n"
                            "Klik na član na kartici mere (npr. čl. 107) otvara baš taj član.",
             self.model: "Ko sudi po Poslovniku i proverava činjenice.\n"
@@ -795,6 +840,13 @@ class Main(QMainWindow):
             self.pause_btn.setText("▶")
             self.set_status(f"Pauza na {fmt_time(self.paused_at)}")
 
+    def toggle_subtitles(self, on):
+        self.s["subtitles"] = bool(on)
+        save_settings(self.s)
+        if not on:
+            self.video.subtitle = None
+            self.video.update()
+
     def toggle_poslovnik(self):
         if self.poslovnik is None:
             from poslovnik_view import PoslovnikDock
@@ -937,11 +989,30 @@ class Main(QMainWindow):
     # ---- periodic ---------------------------------------------------------------------------------
     def tick_video(self):
         f, self.latest_frame = self.latest_frame, None
+        if self.s.get("subtitles", True) and self.running and self.player:
+            sub = self.subtitle_at(self.player.stream_time)
+            if sub != self.video.subtitle:
+                self.video.subtitle = sub
+                if f is None:
+                    self.video.update()
         if f is not None:
             self.video.set_frame(f)
         elif self.video.banner and time.time() > self.video.banner[2]:
             self.video.banner = None
             self.video.update()
+
+    def subtitle_at(self, t):
+        """(speaker with party, text) of the transcript line being heard at t, or None. The transcript runs a
+        few seconds ahead of the sound (jitter buffer), so lines are ready when they are heard."""
+        for g in reversed(getattr(self, "segments", [])[-40:]):
+            if g["t0"] - 0.2 <= t <= g["t1"] + 0.8:
+                who = self.tracker.final_name(g["who"])
+                label = self.chair_label(g["t0"]) if who == CHAIR else who
+                tag = self.party_tag(who)
+                return (f"{label} [{tag}]" if tag else label), g["text"]
+            if g["t1"] < t - 5:
+                break
+        return None
 
     def tick_ui(self):
         if not self.running or not self.player:
@@ -995,6 +1066,11 @@ class Main(QMainWindow):
             n = self.facter.checked if self.facter else 0
             who = f"Lokalno ({self.judge.local.model})" if self.judge.local else "Claude"
             self.cost_lbl.setText(f"{who}: {self.judge.calls} poziva · {n} provera · ${self.judge.cost + fc:.3f}")
+            if getattr(self.judge, "no_credit", False):
+                self.cost_lbl.setText("⚠ Claude API: nema kredita na nalogu – sudija ne radi")
+                self.cost_lbl.setStyleSheet("color:#ff5c5c;font-weight:600")
+            else:
+                self.cost_lbl.setStyleSheet("")
             self.judge.agenda = self.agenda.text().strip()
             if turn:
                 self.judge.speaker_info = (f"{turn.name} ({turn.role or 'uloga nepoznata'}"
@@ -1389,7 +1465,10 @@ class Main(QMainWindow):
         who = self.tracker.final_name(it["who"])
         color = "#e67e22" if who == CHAIR else ("#5dade2" if not it["voice_change"] else "#bb8fce")
         shown = self.chair_label(it["t"]) if who == CHAIR else who
-        return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(shown)}:</b> {it['txt']}"
+        tag = self.party_tag(who)
+        tag = f" <span style='color:#999;font-weight:normal'>[{html.escape(tag)}]</span>" if tag else ""
+        return (f"{self.tlink(it['t'])} <b style='color:{color}'>{html.escape(shown)}</b>{tag}<b "
+                f"style='color:{color}'>:</b> {it['txt']}"
                 + (" <span style='color:#aaa'>(već ocenjeno)</span>" if it["replay"] else ""))
 
     def chair_label(self, t):
@@ -1611,6 +1690,22 @@ class Main(QMainWindow):
             return
         self.set_status(f"Transkript sačuvan: {path} ({len(self.segments)} redova)")
 
+    GROUP_SHORT = {"studentska lista": "SL", "aleksandar vučić - srbija pobeđuje": "SNS-SP",
+                   "nisu članovi poslaničkih grupa": "nezavisni"}
+
+    def party_tag(self, name):
+        """Short party / group of a speaker for the transcript: the party (SNS, SVM...) if the roster has
+        one, else the parliamentary group (SL = Studentska lista...). '' for unknown voices."""
+        if not name or name == CHAIR or name.startswith(("Glas ", "Govornik ")):
+            return ""
+        mp = names.roster_lookup(name)
+        if mp and mp.get("party") and mp["party"] not in ("-", ""):
+            return mp["party"]
+        g = self.group_of(name)
+        if not g or g == "Nepoznato":
+            return ""
+        return self.GROUP_SHORT.get(g.lower(), "".join(w[0] for w in g.split() if len(w) > 2).upper()[:6])
+
     def group_of(self, name):
         """Parliamentary group of a speaker: roster first, then what the on-screen caption said."""
         name = self.tracker.final_name(name)
@@ -1718,14 +1813,31 @@ class Main(QMainWindow):
             if name.startswith("Glas "):
                 name = HALL                      # unidentified voices from the hall: one row, not one per voice
             return rows.setdefault(name, {"name": name, **{c[0]: 0 for c in report.RANK_COLS[2:]},
-                                          "_tech": collections.Counter(), "_kinds": collections.Counter()})
+                                          "_tech": collections.Counter(), "_kinds": collections.Counter(),
+                                          "_items": collections.defaultdict(list)})
         for inc in getattr(self, "counted", []):
             r = row(inc["offender"])
             if r:
                 r["breaches"] += 1
                 r["_kinds"][inc["kind"]] += 1
-                r["insults"] += inc["kind"] in ("insult", "profanity", "private_life")
-                r["heckling"] += inc["kind"] in ("heckling", "no_floor")
+                item = (inc["t"], inc["quote"], KINDS.get(inc["kind"], (inc["kind"],))[0], inc["explanation"])
+                r["_items"]["breaches"].append(item)
+                if inc["kind"] in ("insult", "profanity", "private_life"):
+                    r["insults"] += 1
+                    r["_items"]["insults"].append(item)
+                if inc["kind"] in ("heckling", "no_floor"):
+                    r["heckling"] += 1
+                    r["_items"]["heckling"].append(item)
+        for a in self.app_measures:
+            r = row(a["offender"])
+            if r:
+                key = {"upozorenje": "warnings", "opomena": "opomene", "opomena2": "opomene",
+                       "oduzimanje": "oduzimanje", "udaljenje": "udaljenje"}.get(a["measure"])
+                item = (a["t"], a["quote"], f"{MEASURES[a['measure']][0]} – {a['label']}", "")
+                if key:
+                    r["_items"][key].append(item)
+                if a["measure"] != "upozorenje":
+                    r["_items"]["fine"].append(item)
         for rec in self.discipline.mps.values():
             r = row(rec.name)
             if r:
@@ -1739,22 +1851,61 @@ class Main(QMainWindow):
             if r:
                 r["manipulation"] += 1
                 r["_tech"][x["technique"]] += 1
+                r["_items"]["manipulation"].append((x["t"], x.get("quote", ""), TECHNIQUES.get(
+                    x["technique"], x["technique"]), x.get("explanation", "")))
         for c in self.claims:
             res = c.get("result") or {}
             if res.get("verdict") in report.FALSE_VERDICTS:
                 r = row(c.get("speaker", ""))
                 if r:
                     r["false"] += 1
+                    r["_items"]["false"].append((c["t"], c["claim"], res.get("verdict", "").upper(),
+                                                 res.get("explanation", "")))
         for x in self.tones:
             if x["tone"] in ("uvredljiv", "agresivan"):
                 r = row(x["speaker"])
                 if r:
                     r["aggressive"] += 1
+                    # the tone is judged per batch of lines (~20 s): the speaker's lines of that batch
+                    lines = [g for g in self.segments if self.same_person(g["who"], x["speaker"])
+                             and x["t"] - self.s["judge_every_s"] - 10 <= g["t0"] <= x["t"] + 1]
+                    for g in lines or [{"t0": x["t"], "text": ""}]:
+                        r["_items"]["aggressive"].append((g["t0"], g["text"], f"ton: {x['tone']}", ""))
         out = [r for r in rows.values() if any(r[c[0]] for c in report.RANK_COLS[2:])]
+        self._rank_rows = {r["name"]: r for r in out}
         for r in out:
             g = "" if r["name"] == HALL else self.group_of(r["name"]) or ""
             r["group"] = "" if g == "Nepoznato" else g
         return out
+
+    def show_rank_detail(self, row, col):
+        """Click on a ranking cell: the sentences behind that number (name/group column: everything)."""
+        it = self.table.item(row, 0)
+        r = getattr(self, "_rank_rows", {}).get(it.text() if it else "")
+        if not r:
+            return
+        key, head, _tip = report.RANK_COLS[col]
+        keys = [k for k, _h, _t in report.RANK_COLS[2:]] if col < 2 else [key]
+        out = [f"<h3 style='margin:4px 0'>{html.escape(r['name'])}"
+               + (f" – {html.escape(report.col_title(head))}" if col >= 2 else "") + "</h3>"]
+        for k in keys:
+            items = r["_items"].get(k, [])
+            if not items:
+                continue
+            if len(keys) > 1:
+                h = report.col_title(next(h for kk, h, _t in report.RANK_COLS if kk == k))
+                out.append(f"<p style='margin:8px 0 2px 0'><b>{html.escape(h)}</b> ({len(items)})</p>")
+            seen = set()
+            for t, quote, label, expl in sorted(items, key=lambda x: x[0]):
+                if (t, quote) in seen:
+                    continue
+                seen.add((t, quote))
+                out.append(f"<p style='margin:2px 0 2px 8px'>{self.tlink(t)} <i>„{html.escape(quote)}“</i>"
+                           f" <span style='color:#666'>– {html.escape(label)}"
+                           + (f": {html.escape(expl[:220])}" if expl else "") + "</span></p>")
+        if len(out) == 1:
+            out.append("<p style='color:#888'>Nema zabeleženih rečenica za ovu kolonu.</p>")
+        self.rank_detail.setHtml("".join(out))
 
     def refresh_table(self):
         rows = self.ranking()

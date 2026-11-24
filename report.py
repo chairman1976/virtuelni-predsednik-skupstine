@@ -50,6 +50,13 @@ RANK_COLS = [
     ("aggressive", "Agres.\nton", "Delovi govora ocenjeni kao uvredljiv ili agresivan ton"),
     ("fine", "Kazna", "Novčana kazna po čl. 114 (% osnovne plate)"),
 ]
+
+
+def col_title(h):
+    """A two-line column header as one line: "Pre-" + "kršaji" -> "Prekršaji", "Oduz." + "reč" -> "Oduz. reč"."""
+    return h.replace("-\n", "").replace("\n", " ")
+
+
 FALSE_VERDICTS = ("netačno", "dvostruki aršini", "nedosledno ranijim izjavama", "suprotno zapisniku sednice")
 
 

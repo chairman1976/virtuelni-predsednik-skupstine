@@ -332,6 +332,7 @@ class Judge(threading.Thread):
         cw = getattr(u, "cache_creation_input_tokens", 0) or 0
         self.cost += (u.input_tokens * pin + cr * pin * 0.1 + cw * pin * 1.25 + u.output_tokens * pout) / 1e6
         self.calls += 1
+        self.no_credit = False
 
     def _call(self, content, schema, system=None, max_tokens=4000):
         if self.local:
@@ -359,7 +360,14 @@ class Judge(threading.Thread):
             time.sleep(10)
             return None
         except anthropic.BadRequestError as e:
-            self.on_status(f"Claude: loš zahtev - {e.message}")
+            if "credit balance" in str(e):
+                # the account ran out of credit: say so plainly (the app shows it in red until it works again)
+                self.no_credit = True
+                self.on_status("Claude API: nalog nema kredita - dopuni ga na console.anthropic.com "
+                               "(Plans & Billing). Sudija i provere ne rade dok se ne dopuni.")
+                time.sleep(30)
+            else:
+                self.on_status(f"Claude: loš zahtev - {e.message}")
             log("bad request:", e)
             return None
         except anthropic.APIStatusError as e:
