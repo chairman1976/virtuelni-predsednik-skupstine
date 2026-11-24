@@ -1336,14 +1336,14 @@ class Main(QMainWindow):
             txt = (f"<b>{txt}</b> <span style='color:#e74c3c'>(GLASNO +{lab.loud_db:.0f} dB"
                    + (f", ton +{lab.pitch_up:.0f} %" if lab.pitch_up >= 15 else "") + ")</span>")
         item = {"t": seg.t0, "who": lab.who, "txt": txt, "replay": replay, "voice_change": lab.voice_change}
-        last = next((it["t"] for it in reversed(self.tx_items) if "who" in it), -1e9)
-        if seg.t0 >= last and not self.gaps_before(seg.t0, last):
-            self.tx_items.append(item)
+        # the LATEST line shown (not the last one added: while a missed stretch is being filled, the last added
+        # line is in the middle of the transcript, and appending after it put the next lines at the very end)
+        last = max((it["t"] for it in self.tx_items if "who" in it), default=-1e9)
+        self.tx_items.append(item)
+        if seg.t0 >= last and not self.gaps_before(seg.t0, last) and not getattr(self, "tx_dirty", False):
             self.transcript.append(self.tx_html(item))
         else:
-            # filling a missed stretch (or after a jump): the line goes where it belongs in time
-            self.tx_items.append(item)
-            self.tx_dirty = True
+            self.tx_dirty = True             # the line goes where it belongs in time (re-rendered in order)
         info = lab.chair_info
         if info.get("floor"):
             role, name, limit = info["floor"]
