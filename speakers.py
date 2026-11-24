@@ -245,6 +245,38 @@ class SpeakerTracker:
         turn.confirmed, turn.source = True, "caption"
         turn.party = party or turn.party
 
+    def set_face(self, name, t, voice):
+        """Face recognition: the face whose lips move on screen at t is MP `name`, while `voice` was talking.
+
+        Weaker than the caption (the director may show someone else): it only names an unnamed voice, or votes
+        for who is chairing. A named voice is never renamed by a face. Returns what was done."""
+        name = self.canonical(name)
+        if not voice:
+            return "no voice"
+        voice = self.final_name(voice)
+        if voice == CHAIR:
+            self.chair._vote(name, t, 1, "lice na ekranu")
+            return "chair vote"
+        if voice == name:
+            if self.turn and self.turn.name == name:
+                self.turn.face = True
+            return "same"
+        v = self.voices.get(voice)
+        if v is None or not v.anon:
+            return "named voice"                 # e.g. a reaction shot while someone else talks
+        mp = names.roster_lookup(name)
+        if mp and not _compatible(v.gender, mp["gender"]):
+            return "gender"
+        if not self._rename(voice, name):
+            return "different voices"
+        if self.turn and self.turn.name == name:
+            self.turn.face = True
+            if self.turn.source == "voice":
+                self.turn.source = "face"
+            if mp:
+                self.turn.gender = self.turn.gender or mp["gender"]
+        return "named"
+
     # ---- labelling one transcript segment ---------------------------------------------------------------
     def _sims(self, emb):
         out = {}

@@ -69,6 +69,7 @@ class Bridge(QObject):
     result = pyqtSignal(object)
     caption = pyqtSignal(object, float)
     caption_local = pyqtSignal(object, str, float, float)
+    face = pyqtSignal(str, float, float)
     timer = pyqtSignal(object, float)
     fact = pyqtSignal(int, object)
     profile = pyqtSignal(str, object)
@@ -171,6 +172,7 @@ class Main(QMainWindow):
         self.b.result.connect(self.on_result)
         self.b.caption.connect(self.on_caption)
         self.b.caption_local.connect(self.on_caption_local)
+        self.b.face.connect(self.on_face)
         self.b.timer.connect(self.on_timer)
         self.b.fact.connect(self.on_fact)
         self.b.profile.connect(self.on_profile)
@@ -179,6 +181,9 @@ class Main(QMainWindow):
         self.profiler = None
         self.ocr = None
         self.ocr_frame = None
+        self.facew = None
+        self.face_frame = None
+        self.face_seen = None           # (name, similarity, wall time) - shown in the speaker panel
         self.b.status.connect(self.set_status)
         self.b.agenda.connect(self.on_agenda)
         self.b.resolved.connect(self.on_resolved)
@@ -697,6 +702,10 @@ class Main(QMainWindow):
         self.ocr = CaptionReader(self._ocr_frame, stream.VW, stream.VH, self.b.caption_local.emit,
                                  self.b.timer.emit)
         self.ocr.start()
+        if self.s.get("faces", True):
+            from faces import FaceWatcher
+            self.facew = FaceWatcher(self._face_frame, self.b.face.emit, self.b.status.emit)
+            self.facew.start()
         self.covered = []               # [from, to] stretches already listened to and judged
         if resume:
             self.restore_session(resume, start_s)
@@ -850,6 +859,9 @@ class Main(QMainWindow):
         if self.ocr:
             self.ocr.stop()
             self.ocr = None
+        if self.facew:
+            self.facew.stop()
+            self.facew = None
         if self.facter:
             self.facter.stop()
         if self.profiler:
@@ -880,6 +892,34 @@ class Main(QMainWindow):
     def _frame(self, data):
         self.latest_frame = data           # painted by tick_video in the GUI thread
         self.ocr_frame = data              # read by the caption OCR thread
+        self.face_frame = data             # read by the face watcher
+
+    def _face_frame(self):
+        """(RGB picture, time) for the face watcher, or None (nothing new, paused)."""
+        f, self.face_frame = self.face_frame, None
+        if f is None or not self.player or self.paused:
+            return None
+        import numpy as np
+        return np.frombuffer(f, np.uint8).reshape(stream.VH, stream.VW, 3), self.player.stream_time
+
+    def voice_at(self, t):
+        """Who was talking at moment t (transcript segments)."""
+        for g in reversed(self.segments[-60:]):
+            if g["t0"] - 0.5 <= t <= g["t1"] + 1.0:
+                return g["who"]
+            if g["t1"] < t - 10:
+                break
+        return None
+
+    def on_face(self, name, sim, t):
+        """The face whose lips move on screen is `name` (faces.FaceWatcher)."""
+        if not self.running or not self.tracker:
+            return
+        who = self.voice_at(t)
+        what = self.tracker.set_face(name, t, who)
+        self.face_seen = (name, sim, time.time())
+        self._log({"type": "face", "t": t, "name": name, "sim": round(sim, 2), "voice": who, "result": what})
+        self.update_speaker_panel()
 
     def _ocr_frame(self):
         f, self.ocr_frame = self.ocr_frame, None
@@ -1101,8 +1141,13 @@ class Main(QMainWindow):
         sym = {"F": "♀ ", "M": "♂ "}.get(turn.gender, "")
         self.sp_name.setText(sym + turn.name + ("  ✓" if turn.confirmed else ""))
         bits = [b for b in (turn.role, turn.party) if b]
-        src = {"chair": "najavio predsedavajući", "caption": "ime sa ekrana (potvrđeno)", "voice": "po glasu"}
-        self.sp_role.setText(" · ".join(bits + [src.get(turn.source, "")]))
+        src = {"chair": "najavio predsedavajući", "caption": "ime sa ekrana (potvrđeno)", "voice": "po glasu",
+               "face": "prepoznat po licu"}
+        extra = []
+        fs = self.face_seen
+        if fs and time.time() - fs[2] < 8:
+            extra.append(f"na ekranu govori: {fs[0]}" + (" ✓" if self.same_person(fs[0], turn.name) else ""))
+        self.sp_role.setText(" · ".join(bits + [src.get(turn.source, "")] + extra))
 
     def on_caption(self, res, t):
         """Claude vision read the caption (fallback when the local OCR finds nothing)."""

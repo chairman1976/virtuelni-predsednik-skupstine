@@ -9,6 +9,7 @@ PyQt6>=6.6
 sounddevice
 numpy
 pillow
+opencv-python           # face recognition (YuNet + SFace)
 winocr
 yt-dlp
 certifi
