@@ -1,0 +1,78 @@
+{
+ "name": "Imre Krizmanić",
+ "summary": "Imre Krizmanić je diplomirani biolog i profesor Biološkog fakulteta u Beogradu, koji je prema objavama medija bio na 61. mestu liste Studentska lista – Studenti pobeđuju za vanredne parlamentarne izbore 2026. Narodna skupština na svom sajtu navodi ga kao narodnog poslanika u aktuelnom sazivu, bez političke stranke, s mestom Beograd, Stari grad i godištem 1962. Javno se najviše bavio projektom rudnika litijuma Jadar kompanije Rio Tinto i kritikovao postupanje vlasti prema studentskim protestima.",
+ "party_and_group": "Poslanička grupa Studentska lista; na listi za izbore 2026. nastupio kao kandidat grupe građana Studentska lista – Studenti pobeđuju (Narodna skupština u svom sajtu u koloni političke stranke ne navodi stranku, već crtu).",
+ "roles": [
+  "Narodni poslanik, 15. saziv Narodne skupštine Republike Srbije (prema sajtu Narodne skupštine i spisku objavljenom uoči konstitutivne sednice 17. novembra 2026)",
+  "Vanredni profesor Biološkog fakulteta Univerziteta u Beogradu (prema Nova S emisiji citiranoj na portalu Strucnjaci govore)",
+  "Rukovodilac projekta \"Jadar – stanje biodiverziteta\" zajedno sa Dmitrom Lakušićem (prema NSPM, oko 2024)",
+  "Kandidat na 61. mestu Studentske liste – Studenti pobeđuju (prema Nova.rs i Danas, septembar 2026)"
+ ],
+ "positions": [
+  {
+   "topic": "Rudnik litijuma Jadar (Rio Tinto)",
+   "position": "Zajedno sa Dmitrom Lakušićem tvrdio je da otvaranje rudnika donosi ogromne štete po biodiverzitet i prirodu i da u ovom trenutku treba odustati od eksploatacije, zbog velikih rizika i mnogo nepoznanica.",
+   "source_title": "Profesori biološkog fakulteta u Beogradu Dmitar Lakušić i Imre Krizmanić: Treba odustati od rudnika u Jadru, naneo bi ogromnu štetu prirodi",
+   "url": "https://www.nspm.rs/hronika/profesori-bioloskog-fakulteta-dmitar-lakusic-i-imre-krizmanic-treba-odustati-od-rudnika-u-jadru-naneo-bi-ogromnu-stetu-prirodi.html?alphabet=l",
+   "date": "oko 2024. (u pisanom odgovoru; tačan datum nije utvrđen)"
+  },
+  {
+   "topic": "Rudnik Jadar – tehnologija prerade",
+   "position": "Prema Nova S emisiji Među nama, naveo je da je tehnologija prerade jadarita neisprobana i da još nikada nije korišćena, što projekat čini \"živim eksperimentom\", i zaključio da je najrazumnije odustati od projekta.",
+   "source_title": "Imre Krizmanić: What Does Rio Tinto's Pause Mean for Serbia? (Litijum: Stručnjaci govore)",
+   "url": "https://strucnjacigovore.com/en/portfolio/imre-krizmanic-what-does-rio-tintos-pause-mean-for-serbia/",
+   "date": "oko početka 2026. (tačan datum nije utvrđen)"
+  },
+  {
+   "topic": "Studentski protesti i odgovornost vlasti",
+   "position": "Na studentskom protestu u Šapcu poručio je da vlast koja gazi, tuče i zatvara svoju mladost treba da se brine za svoju budućnost, i da ga je u tom govoru Rio Tinto pozivao da objavi studije.",
+   "source_title": "Profesor Biološkog: Vlast koja tuče i zatvara svoju mladost treba da se brine za svoju budućnost",
+   "url": "https://novimagazin.rs/vesti/profesor-bioloskog-vlast-koja-tuce-i-zatvara-svoju-mladost-treba-da-se-brine-za-svoju-buducnost/",
+   "date": "oko aprila 2025."
+  },
+  {
+   "topic": "Studentska lista – program bez kulta ličnosti",
+   "position": "Lista je predstavljena kao lista bez jednog lidera; Studentska lista je navela da na njoj ne postoji čovek čije ime treba da zaseni ostale. Krizmanić je na listi na 61. mestu; ovo je stav same liste, a ne njegov lični istup.",
+   "source_title": "Studentska lista – Studenti pobeđuju (marjanovicmarko.org)",
+   "url": "https://www.marjanovicmarko.org/studentska-lista-studenti-pobedjuju/",
+   "date": "septembar 2026."
+  }
+ ],
+ "notable_statements": [
+  {
+   "statement": "Vlast koja gazi, tuče i zatvara svoju mladost, treba da se brine za svoju budućnost.",
+   "context": "Poruka sa studentskog protesta u Šapcu, u kojoj je govorio i o Rio Tintu i projektu Jadar.",
+   "source_title": "Profesor Biološkog: Vlast koja tuče i zatvara svoju mladost treba da se brine za svoju budućnost",
+   "url": "https://novimagazin.rs/vesti/profesor-bioloskog-vlast-koja-tuce-i-zatvara-svoju-mladost-treba-da-se-brine-za-svoju-buducnost/",
+   "date": "oko aprila 2025."
+  },
+  {
+   "statement": "Pitao je zašto Rio Tinto krije studije, namere i planove, i pozvao kompaniju da objavi koliko je zaista \"zelena\".",
+   "context": "Govor na studentskom protestu u Šapcu; kritika odnosa kompanije prema studijama o biodiverzitetu u dolini Jadra.",
+   "source_title": "Profesor Biološkog: Vlast koja tuče i zatvara svoju mladost treba da se brine za svoju budućnost",
+   "url": "https://novimagazin.rs/vesti/profesor-bioloskog-vlast-koja-tuce-i-zatvara-svoju-mladost-treba-da-se-brine-za-svoju-buducnost/",
+   "date": "oko aprila 2025."
+  },
+  {
+   "statement": "Naveo je da na prostoru Jadra \"živi više od 250 zaštićenih i strogo zaštićenih biljnih i životinjskih vrsta i staništa\" i da biolozi to dokazuju.",
+   "context": "Tvrdnja iznesena na studentskom protestu u Šapcu, prema izveštaju Novog magazina.",
+   "source_title": "Profesor Biološkog: Vlast koja tuče i zatvara svoju mladost treba da se brine za svoju budućnost",
+   "url": "https://novimagazin.rs/vesti/profesor-bioloskog-vlast-koja-tuce-i-zatvara-svoju-mladost-treba-da-se-brine-za-svoju-buducnost/",
+   "date": "oko aprila 2025."
+  }
+ ],
+ "controversies": [
+  {
+   "what": "Prorežimski portal 24sedam objavio je spisak Studentske liste sa natpisom da su na njoj \"izdajnici, neprijatelji države\" i pominjao ga uz tvrdnju da je uništio projekat \"Jadar\"; to je ocena tog portala, a ne utvrđena činjenica.",
+   "reported_by": "24sedam",
+   "url": "https://24sedam.rs/politika/vesti/451196/evo-je-studentska-lista-dokic-i-neki-ljudi/vest",
+   "date": "oko marta 2026."
+  },
+  {
+   "what": "Na Studentskoj listi nastupa kao kandidat bez stranačke pripadnosti; tokom kampanje nije zabeleženo posebno javno osporavanje njegovih stavova u pouzdanim izvorima koje sam pronašao, pa ovo polje ostaje ograničeno na navedeno.",
+   "reported_by": "Narodna skupština Republike Srbije; Nova.rs",
+   "url": "https://www.parlament.gov.rs/narodna-skupstina-/sastav/narodni-poslanici/aktuelni-saziv.890.html",
+   "date": "septembar–novembar 2026."
+  }
+ ]
+}

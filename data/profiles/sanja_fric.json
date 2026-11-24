@@ -1,0 +1,55 @@
+{
+ "name": "Sanja Fric",
+ "summary": "Dr Sanja Fric je docentkinja Građevinskog fakulteta Univerziteta u Beogradu i poslanica Studentske liste u Narodnoj skupštini Srbije, zvanično od prve konstitutivne sednice novembra 2026, prema pisanju Direktno.rs i Nova.rs. Godina rođenja 1983. i podatak o Paliluli preuzeti su iz unosa korisnika i nisu potvrđeni u pretraženim izvorima. Javnost ju je u prvim sednicama pominjala u vezi sa EXPO 2027, javnim investicijama i sukobima sa predsedavajućim Stojanom Radenovićem i Aleksandrom Vučićem.",
+ "party_and_group": "Studentska lista (poslanička grupa Studentska lista)",
+ "roles": [
+  "Narodna poslanica u Narodnoj skupštini Srbije (od prve konstitutivne sednice, novembar 2026, prema Direktno.rs)",
+  "Docentkinja Građevinskog fakulteta Univerziteta u Beogradu (prema N1 i Direktno.rs)"
+ ],
+ "positions": [
+  {
+   "topic": "EXPO 2027",
+   "position": "Prema njenim rečima, za dinamiku, kašnjenje, potencijalno koruptivne ugovore i nepoštovanje procedura odgovornost je isključivo na tehničkoj vladi čiji mandat još traje; Studentska lista još nema formalne nadležnosti nad projektom, a stručni tim će ga sagledati i pripremiti strategiju.",
+   "source_title": "Poslanica Sanja Fric otkriva stav Studentske liste o Ekspu / Sanja Fric: Prvi korak Studentske liste u vezi sa EXPO",
+   "url": "https://nova.rs/vesti/biznis/poslanica-sanja-fric-otkriva-stav-studentske-liste-o-ekspu/",
+   "date": "novembar 2026 (oko 19.11.2026)"
+  },
+  {
+   "topic": "Javne investicije",
+   "position": "Plan Studentske liste je hitno formiranje nezavisne komisije za reviziju postojećih javnih investicija, koja bi pregledala kapitalne infrastrukturne projekte i dala preporuke za nastavak, izmenu ili obustavu.",
+   "source_title": "Fric: Plan je hitno formiranje komisije za reviziju javnih investicija",
+   "url": "https://n1info.rs/vesti/fric-plan-je-hitno-formiranje-komisije-za-reviziju-javnih-investicija",
+   "date": "novembar 2026 (oko 13.11.2026)"
+  }
+ ],
+ "notable_statements": [
+  {
+   "statement": "Možda je vreme da siđete sa te stolice (predsednika Narodne skupštine), obratila se Stojanu Radenoviću.",
+   "context": "Tokom rasprave o Informeru i padu nadstrešnice u Novom Sadu, nakon Radenovićeve izjave da Informer treba nominovati za Nobelovu nagradu.",
+   "source_title": "Rasprava Sanje Fric i Stojana Radenovića u Skupštini Srbije",
+   "url": "https://mondo.rs/Info/Politika/a2313523/rasprava-sanje-fric-i-stojana-radenovica-u-skupstini-srbije.html",
+   "date": "18.11.2026"
+  },
+  {
+   "statement": "Ja se bavim putevima i Vi to dobro znate.",
+   "context": "Odgovor Aleksandru Vučiću, koji je u skupštinskoj raspravi rekao da o nadstrešnici pričaju ona i drugi poslanici koji su radili na njoj.",
+   "source_title": "(BLOG) Poslanici nastavili zasedanje, Vučić napustio, pa se vratio u salu",
+   "url": "https://n1info.rs/vesti/blog-nastavak-konstitutivne-sednica-skupstine",
+   "date": "24.11.2026"
+  }
+ ],
+ "controversies": [
+  {
+   "what": "Verbalni sukob sa Aleksandrom Vučićem u Skupštini: Fric je pozvala predsedavajućeg Radenovića da prepusti predsedavanje potpredsedniku, a Vučić joj je odgovorio, prema naslovu medija, da 'nauči da čita'.",
+   "reported_by": "Glas Zapadne Srbije (preuzeto iz izveštavanja o sednici)",
+   "url": "https://glaszapadnesrbije.rs/b2f3df26-8a69-4c12-a884-dfa3f51c71d2/VU%C4%8CI%C4%86-ODGOVORIO-POSLANICI-STUDENTSKE-LISTE-GOSPO%C4%90O-NAU%C4%8CITE-DA-%C4%8CITATE!",
+   "date": "novembar 2026 (oko 18.11.2026)"
+  },
+  {
+   "what": "Sukob sa predsedavajućim Stojanom Radenovićem: Fric ga je kritikovala zbog hvaljenja Informera, a on joj je odgovorio povezivanjem nje i njenih kolega sa padom nadstrešnice; Radenović je, prema pisanju Mondo-a, rekao da samo iznosi svoje mišljenje.",
+   "reported_by": "Mondo.rs",
+   "url": "https://mondo.rs/Info/Politika/a2313523/rasprava-sanje-fric-i-stojana-radenovica-u-skupstini-srbije.html",
+   "date": "18.11.2026"
+  }
+ ]
+}
