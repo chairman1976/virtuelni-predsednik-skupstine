@@ -1,0 +1,56 @@
+{
+ "name": "Dražen Drašković",
+ "summary": "Dražen Drašković, rođen 1985. u Smederevu, univerzitetski profesor (ETF) i narodni poslanik 15. saziva, čiji je mandat potvrđen 17. novembra 2026. prema sajtu Narodne skupštine. Na parlamentarnim izborima 25. oktobra 2026. bio je na listi „Studentska lista – Studenti pobeđuju“, a prema sajtu Otvorenog parlamenta poslanički klub je Studentska lista, koji taj sajt svrstava u orijentaciju „Vlast“.",
+ "party_and_group": "Poslanička grupa „Studentska lista“ (izborna lista „Studentska lista – Studenti pobeđuju“). Otvoreni parlament ga navodi kao nestranačku ličnost.",
+ "roles": [
+  "Narodni poslanik, 15. saziv Narodne skupštine Republike Srbije (mandat potvrđen 17.11.2026., prema sajtu parlament.gov.rs)",
+  "Univerzitetski profesor, Elektrotehnički fakultet (ETF) u Beogradu, prema sajtu parlamenta i izvorima iz medija",
+  "Član poslaničke grupe Studentska lista; prema Otvorenom parlamentu nije član nijednog radnog tela"
+ ],
+ "positions": [
+  {
+   "topic": "Studentska lista i izbor kandidata",
+   "position": "Studentska lista je navela da kandidate nisu birali partijski lideri, već studenti kroz proces koji je trajao više od godinu dana; lista je predstavljena kao bez „kulta ličnosti“. Ovo je stav same liste, a ne izjava Draškovića posebno.",
+   "source_title": "Studenti objavili sva imena sa „Studentske liste – Studenti pobeđuju“ (Nedeljnik)",
+   "url": "https://www.nedeljnik.rs/studenti-objavili-sva-imena-sa-studentske-liste-studenti-pobedjuju/",
+   "date": "2026 (pre predaje liste RIK-u, septembar 2026)"
+  }
+ ],
+ "notable_statements": [
+  {
+   "statement": "Mislim da je to najveći skup u Beogradu za mog života (o protestu „15 za 15“).",
+   "context": "Izjava u emisiji „Dan uživo“ na N1, dan nakon protesta u Beogradu, kada je kao profesor ETF-a komentarisao događaje tokom minuta tišine.",
+   "source_title": "Profesor: Na protestu se nešto krupno desilo, eksperti sa ETF i drugih fakulteta analiziraju materijal (N1, preneto na naslovi.net)",
+   "url": "https://naslovi.net/2025-03-17/n1-info/profesor-na-protestu-se-nesto-krupno-desilo-eksperti-sa-etf-i-drugih-fakulteta-analiziraju-materijal/39214127",
+   "date": "17.03.2025."
+  },
+  {
+   "statement": "Nije bilo razloga da reagujete antiteroristički. Ovo je udar na svoj narod.",
+   "context": "Drašković je ocenio da je tokom minuta tišine na protestu „15 za 15“ u Beogradu „definitivno“ nešto krupno da se desilo, i da su mladi mirni demonstranti napadnuti. Govorio je i o mogućoj upotrebi zvučnih topova, ali je naveo da se materijali analiziraju.",
+   "source_title": "Profesor: Na protestu se nešto krupno desilo, eksperti sa ETF i drugih fakulteta analiziraju materijal (N1, preneto na naslovi.net)",
+   "url": "https://naslovi.net/2025-03-17/n1-info/profesor-na-protestu-se-nesto-krupno-desilo-eksperti-sa-etf-i-drugih-fakulteta-analiziraju-materijal/39214127",
+   "date": "17.03.2025."
+  },
+  {
+   "statement": "Slučaj huligana na ETF je rešen, ali ne zahvaljujući policiji već našim studentima.",
+   "context": "Drašković je izjavio da su studenti, a ne policija, sprečili incidente koje su, prema njegovim rečima, pokušavali da izazovu huligani na ETF-u; policija je, po njegovom navodu, došla sa zakašnjenjem od oko 20 minuta.",
+   "source_title": "Profesor: Na protestu se nešto krupno desilo, eksperti sa ETF i drugih fakulteta analiziraju materijal (N1, preneto na naslovi.net)",
+   "url": "https://naslovi.net/2025-03-17/n1-info/profesor-na-protestu-se-nesto-krupno-desilo-eksperti-sa-etf-i-drugih-fakulteta-analiziraju-materijal/39214127",
+   "date": "17.03.2025."
+  }
+ ],
+ "controversies": [
+  {
+   "what": "Prorežimski dnevni list Informer objavio je tekst u kojem tvrdi da Drašković „iskorišćava studente“ za honorare i da je, prema pisanju studenata na platformi „Oceni profesora“, lagao o svom prosečnoj oceni na studijama. Ove tvrdnje u tekstu nisu nezavisno potvrđene, a tekst je politički obojen.",
+   "reported_by": "Informer.rs",
+   "url": "https://informer.rs/politika/vesti/1159788/drazen-draskovic-blokaderska-lista-honorar-prevara",
+   "date": "datum nije naveden u izvoru (objavljeno tokom predizborne kampanje 2026.)"
+  },
+  {
+   "what": "Informer je u istom tekstu naveo da je Drašković, kada su se studenti ETF-a 'pre par godina' bunili zbog poskupljenja školarina i prijave ispita, komentarisao: „Pa što ne zagrejete stolicu?“ Informer ovu izjavu navodi bez datuma i bez direktnog izvora.",
+   "reported_by": "Informer.rs",
+   "url": "https://informer.rs/politika/vesti/1159788/drazen-draskovic-blokaderska-lista-honorar-prevara",
+   "date": "datum nije naveden u izvoru (objavljeno tokom predizborne kampanje 2026.)"
+  }
+ ]
+}
