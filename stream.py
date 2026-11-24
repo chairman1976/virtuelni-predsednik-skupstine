@@ -46,6 +46,8 @@ def resolve(url):
         "video_url": vurl,
         "audio_url": aurl,
         "headers": headers,
+        # day of the broadcast (YYYYMMDD): the agenda search and fact checks need the sitting's date
+        "date": info.get("release_date") or info.get("upload_date") or "",
     }
 
 
@@ -90,7 +92,8 @@ class Player:
     """
 
     def __init__(self, src, start_s, on_asr_audio, on_frame, on_end):
-        self.src, self.start_s = src, (0.0 if src["is_live"] else start_s)
+        # live: start_s only labels the time (a resumed session continues its clock); never seeks
+        self.src, self.start_s = src, start_s
         self.on_asr_audio, self.on_frame, self.on_end = on_asr_audio, on_frame, on_end
         self.play_buf = collections.deque()
         self.play_lock = threading.Lock()

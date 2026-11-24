@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from common import SESSIONS, fmt_time, load_settings, log, parse_time, save_settings, setup_env, to_latin
+from common import SESSIONS, fmt_time, fold_text, load_settings, log, parse_time, save_settings, setup_env, to_latin
 
 setup_env()
 
@@ -30,6 +30,7 @@ import profiles as profiles_mod  # noqa: E402
 import report  # noqa: E402
 import local_llm  # noqa: E402
 import theme  # noqa: E402
+import session_state  # noqa: E402
 import stream  # noqa: E402
 from rules import KINDS, MEASURES, Discipline  # noqa: E402
 from speakers import CHAIR, SpeakerTracker  # noqa: E402
@@ -507,6 +508,79 @@ class Main(QMainWindow):
             return ans == QMessageBox.StandardButton.Yes
         return True
 
+    def ask_resume(self):
+        """The saved state of this video's earlier session, if the user wants to continue it."""
+        ent = session_state.find(self.s["last_url"])
+        if not ent:
+            return None
+        env = os.environ.get("PRED_RESUME")              # tests: "1" continue, "0" fresh
+        if env is None and os.environ.get("PRED_AUTOTEST"):
+            env = "0"
+        if env is None:
+            ago = time.time() - ent["saved"]
+            ago_s = f"{ago / 60:.0f} min" if ago < 5400 else f"{ago / 3600:.1f} h"
+            box = QMessageBox(QMessageBox.Icon.Question, "Ista sednica",
+                              f"Ovaj video je već praćen (pre {ago_s}): {ent['lines']} redova transkripta, "
+                              f"{ent['measures']} mera, zaustavljeno na {fmt_time(ent['pos'])}.\n\n"
+                              "Nastaviti tu sesiju? Transkript, mere, statistika, glasovi govornika i provere "
+                              "ostaju" + (", a snimak se nastavlja odatle." if not ent["live"] else "."),
+                              parent=self)
+            cont = box.addButton("Nastavi sesiju", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Počni iznova", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            env = "1" if box.clickedButton() is cont else "0"
+        if env != "1":
+            return None
+        try:
+            return session_state.load(ent["path"])
+        except Exception as e:
+            log("session load:", e)
+            QMessageBox.warning(self, "Ista sednica", f"Ne mogu da učitam prethodnu sesiju: {e}")
+            return None
+
+    def restore_session(self, st, start_s):
+        """Put a saved session back: data first, then every pane is rebuilt from it."""
+        for k, v in st["fields"].items():
+            setattr(self, k, v)
+        self.tracker = st["tracker"]
+        self.tracker.on_rename = self.on_speaker_renamed
+        self.tracker.chair.on_change = [self.on_chair_change]
+        self.tracker.run, self.last_turn_obj = None, None     # the speaker on the floor stays (panel, timer)
+        turns = self.tracker.turns
+        self.turn_flagged = {("official", id(turns[x[1]])) if isinstance(x, (tuple, list)) else id(turns[x])
+                             for x in st["flagged"]}
+        self.profiles = dict(st["profiles"])
+        self.chair.setHtml(st["chair_html"])
+        self.agenda.setText(st["agenda"])
+        if st["agenda_items"]:
+            for i, title in enumerate(st["agenda_items"]):
+                self.agenda_box.addItem(f"{i + 1}. {title}", title)
+            self.agenda_box.setToolTip(st["agenda_tip"])
+            self.agenda_box.setVisible(True)
+            if st["agenda"] in st["agenda_items"]:
+                self.agenda_box.setCurrentIndex(st["agenda_items"].index(st["agenda"]))
+            if self.judge:
+                self.judge.agenda_list = "\n".join(f"{i + 1}. {x}" for i, x in enumerate(st["agenda_items"]))
+        if self.judge:
+            self.judge.cost, self.judge.calls = st["cost"], st["calls"]
+        if self.facter:
+            self.facter.cost, self.facter.checked = st["fact_cost"], st["checked"]
+            for c in self.claims:                        # checked ones are not checked again; unfinished go on
+                if c["status"] == "done":
+                    self.facter.seen.append(fold_text(c["claim"]))
+                elif c["status"] in ("queued", "checking"):
+                    c["status"] = "queued"
+                    self.facter.submit(c)
+        self.tx_items.append({"resume": start_s})
+        self.render(self.transcript, "".join(f"<p style='margin:0'>{self.tx_html(it)}</p>" for it in self.tx_items))
+        self.rebuild_measures()
+        self.render_rhetoric()
+        self.render_facts()
+        self.render(self.profs, report.profiles_html(self.profiles))
+        self.groups_dirty = True
+        self.update_speaker_panel()
+        self.set_status(f"Nastavljena sesija: {len(self.segments)} redova, {len(self.app_measures)} mera.")
+
     def on_failed(self, msg):
         self.go.setEnabled(True)
         QMessageBox.warning(self, "Greška", msg)
@@ -543,12 +617,21 @@ class Main(QMainWindow):
         self.report_path = None
         self.table.setRowCount(0)
         start_s = 0.0 if src["is_live"] else parse_time(self.start_at.text())
+        resume = self.ask_resume()
+        if resume:
+            # recording: back where it stopped (a few seconds early); live: the clock goes on by the time away
+            start_s = (resume["pos"] + (time.time() - resume["saved"]) if src["is_live"]
+                       else max(0.0, resume["pos"] - 5))
+            self.start_at.setText("0" if src["is_live"] else fmt_time(start_s))
         stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
         safe = re.sub(r"[^\w\- ]", "", src["title"])[:60].strip() or "sednica"
         self.log_path = os.path.join(SESSIONS, f"{stamp}_{safe}.jsonl")
+        if resume and os.path.exists(resume["log_path"]):
+            self.log_path = resume["log_path"]        # one session = one log, also across restarts
         self.logf = open(self.log_path, "a", encoding="utf-8")
-        self._log({"type": "start", "title": src["title"], "live": src["is_live"], "start_s": start_s,
-                   "url": self.s["last_url"], "model": self.s["judge_model"]})
+        self._log({"type": "resume" if resume else "start", "title": src["title"], "live": src["is_live"],
+                   "start_s": start_s, "url": self.s["last_url"], "model": self.s["judge_model"]})
+        self.last_state_save = time.time()
         self.asr = ASRWorker(self.s["whisper_model"], self.b.segment.emit, self.b.status.emit)
         self.asr.start()
         jb, rb, lm = local_llm.plan(self.s, self._local_ok)
@@ -559,15 +642,19 @@ class Main(QMainWindow):
             self.judge = Judge(self.s, self.b.result.emit, self.b.caption.emit, self.b.status.emit)
             self.judge.start()
             m = re.search(r"(\d{1,2})\.\s?(\d{1,2})\.\s?(20\d\d)", src["title"])
-            date = f"{m.group(1)}.{m.group(2)}.{m.group(3)}." if m else datetime.date.today().strftime("%d.%m.%Y.")
+            d = src.get("date", "")
+            date = (f"{m.group(1)}.{m.group(2)}.{m.group(3)}." if m
+                    else f"{d[6:8]}.{d[4:6]}.{d[:4]}." if len(d) == 8
+                    else datetime.date.today().strftime("%d.%m.%Y."))
             self.facter = FactChecker(self.s, self.b.fact.emit, self.b.status.emit, date)
             self.facter.start()
             import agenda as agenda_mod
             self.agenda_hits = []
             self.agenda_box.clear()
             self.agenda_box.setVisible(False)
-            self.set_status("Tražim dnevni red sednice na internetu…")
-            agenda_mod.find_async(dict(self.s), src["title"], date, self.b.agenda.emit)
+            if not (resume and resume["agenda_items"]):
+                self.set_status("Tražim dnevni red sednice na internetu…")
+                agenda_mod.find_async(dict(self.s), src["title"], date, self.b.agenda.emit)
             if self.s.get("profiles", True):
                 from profiles import ProfileBuilder
                 self.profiler = ProfileBuilder(self.s, self.b.profile.emit, self.b.status.emit)
@@ -588,6 +675,8 @@ class Main(QMainWindow):
                                  self.b.timer.emit)
         self.ocr.start()
         self.covered = []               # [from, to] stretches already listened to and judged
+        if resume:
+            self.restore_session(resume, start_s)
         self._new_stretch(start_s)
         if not self._start_player(start_s):
             return
@@ -743,6 +832,7 @@ class Main(QMainWindow):
         if self.profiler:
             self.profiler.stop()
         self._log({"type": "stop"})
+        session_state.save(self)
         try:
             self.save_report()
             self.save_transcript(self.log_path[:-6] + "_transkript.txt")
@@ -860,6 +950,9 @@ class Main(QMainWindow):
             self.set_status(f"{fmt_time(t)} · transkript kasni {t - self.asr.last_end:.0f} s (model se učitava "
                             "ili GPU ne stiže)")
         self.request_caption(t)
+        if time.time() - getattr(self, "last_state_save", 0) > 60:
+            self.last_state_save = time.time()
+            session_state.save(self)
         if getattr(self, "groups_dirty", False) and int(time.time()) % 5 == 0:
             self.groups_dirty = False
             self.render(self.groups, report.groups_html(self.group_stats()))
@@ -1219,6 +1312,9 @@ class Main(QMainWindow):
     def tx_html(self, it):
         if "seek" in it:
             return f"<p style='color:#888'><i>── skok na {fmt_time(it['seek'])} ──</i></p>"
+        if "resume" in it:
+            return (f"<p style='color:#888'><i>── aplikacija ponovo otvorena – nastavak sesije od "
+                    f"{fmt_time(it['resume'])} ──</i></p>")
         who = self.tracker.final_name(it["who"])
         color = "#e67e22" if who == CHAIR else ("#5dade2" if not it["voice_change"] else "#bb8fce")
         shown = self.chair_label(it["t"]) if who == CHAIR else who
