@@ -245,6 +245,38 @@ class SpeakerTracker:
         turn.confirmed, turn.source = True, "caption"
         turn.party = party or turn.party
 
+    def move_voice(self, old, new, centroid_old=None, n_old=0, centroid_new=None, n_new=0):
+        """Voice `old` is really `new` (a correction): the voiceprint goes to `new` - merged if `new` has one.
+        No alias: lines labelled `old` before the correction stay `old` unless the app rewrites them.
+        With centroid_old/centroid_new (a split): `old` keeps its own part, `new` gets the other part."""
+        if old == new or old not in self.voices:
+            return False
+        v = self.voices[old]
+        if centroid_old is not None:                      # split: old keeps the rest of its voice
+            v.centroid, v.n = centroid_old, max(1, n_old)
+            src = Voice(new)
+            src.centroid, src.n = centroid_new, max(1, n_new)
+        else:
+            src = self.voices.pop(old)
+        if new in self.voices:
+            t = self.voices[new]
+            if src.centroid is not None:
+                c = (t.centroid * t.n + src.centroid * src.n) if t.centroid is not None else src.centroid
+                t.centroid = c / (np.linalg.norm(c) + 1e-9)
+            t.n += src.n
+            if centroid_old is None:
+                t.dbs, t.f0s = (t.dbs + src.dbs)[-60:], (t.f0s + src.f0s)[-60:]
+        else:
+            src.name = new
+            self.voices[new] = src
+        for a in ("last_voice", "last_any"):
+            who, when = getattr(self, a)
+            if who == old and centroid_old is None:
+                setattr(self, a, (new, when))
+        if self.run and self.run[0] == old:
+            self.run = None
+        return True
+
     def set_face(self, name, t, voice):
         """Face recognition: the face whose lips move on screen at t is MP `name`, while `voice` was talking.
 

@@ -969,6 +969,8 @@ class Main(QMainWindow):
             return
         who = self.voice_at(t)
         what = self.tracker.set_face(name, t, who)
+        if what == "named voice":
+            self.conflict_evidence(name, t, 1, "lice")
         self.face_seen = (name, sim, time.time())
         self._log({"type": "face", "t": t, "name": name, "sim": round(sim, 2), "voice": who, "result": what})
         self.update_speaker_panel()
@@ -1129,7 +1131,8 @@ class Main(QMainWindow):
                    "f0": seg.f0 and round(seg.f0)})
         self.recent_lines = (self.recent_lines + [f"{lab.who}: {seg.latin}"])[-8:]
         loud_mark = lab.loud_db if lab.loud_db >= self.s["shout_db"] else 0
-        self.segments.append({"t0": seg.t0, "t1": seg.t1, "who": lab.who, "text": seg.latin,
+        self.segments.append({"emb": None if seg.emb is None else seg.emb.astype("float16"),
+                              "t0": seg.t0, "t1": seg.t1, "who": lab.who, "text": seg.latin,
                               "loud": round(loud_mark), "chair": lab.is_chair})
         self.groups_dirty = True
         replay = self.already_judged(seg.t0)
@@ -1168,15 +1171,144 @@ class Main(QMainWindow):
         act_false = menu.addAction("Označi kao netačno (moja ocena)")
         act_true = menu.addAction("Označi kao tačno (moja ocena)")
         menu.addSeparator()
+        m_line = re.match(r"\[(\d+:\d\d:\d\d)\]\s+(.+?)(?:\s\[[^\]]*\])?:\s", line)
+        act_who = act_who_one = None
+        if m_line and self.running:
+            act_who = menu.addAction("Ovo je govorio… (ispravi govornika od ovog reda nadalje)")
+            act_who_one = menu.addAction("Ovo je govorio… (samo ovaj red)")
+            menu.addSeparator()
         act_copy = menu.addAction("Kopiraj red")
         chosen = menu.exec(self.transcript.viewport().mapToGlobal(pos))
-        if chosen == act_copy:
+        if chosen is not None and chosen in (act_who, act_who_one):
+            self.correct_speaker(parse_time(m_line.group(1)), m_line.group(2), only_line=chosen == act_who_one)
+        elif chosen == act_copy:
             QApplication.clipboard().setText(sel or line)
         elif chosen == act_check:
             self.check_claim_manually(line, sel, cur.block())
         elif chosen in (act_false, act_true):
             self.check_claim_manually(line, sel, cur.block(),
                                       user_verdict="netačno" if chosen == act_false else "tačno")
+
+    def correct_speaker(self, t, shown, only_line=False):
+        """The user says the line at t (shown as `shown`) was said by someone else."""
+        seg = next((g for g in self.segments if abs(g["t0"] - t) < 1.0), None)
+        if not seg:
+            return
+        old = self.tracker.final_name(seg["who"])
+        known = sorted({self.tracker.final_name(g["who"]) for g in self.segments} - {CHAIR, old})
+        roster = sorted(mp["name"] for mp in names.ROSTER)
+        items = [x for x in known if not x.startswith(("Glas ", "Govornik "))] + [CHAIR] + \
+            [x for x in roster if x not in known]
+        new, ok = QInputDialog.getItem(
+            self, "Ispravi govornika",
+            f"Red u {fmt_time(t)} je pripisan: {old}.\nKo je to stvarno govorio?"
+            + ("" if only_line else f"\n\nIspravka važi za sve redove glasa „{old}“ od ovog trenutka nadalje "
+                                    "(i unazad prerađuje mere, retoriku, tvrdnje i rang listu)."),
+            items, 0, True)
+        new = self.tracker.canonical(new.strip()) if ok and new.strip() else ""
+        if not new or new == old:
+            return
+        if only_line:
+            self.reassign_lines(old, new, lambda tt: abs(tt - seg["t0"]) < 0.5, why="ručno (jedan red)")
+        else:
+            self.reassign_lines(old, new, lambda tt: tt >= seg["t0"] - 0.1, why="ručno", move_voice=True)
+
+    def reassign_lines(self, old, new, moved, why="", move_voice=False, split=None):
+        """Lines of voice `old` for which moved(t) is true were said by `new`: transcript, measures, rhetoric,
+        claims and turns are rewritten (retroactively) and every pane rebuilt."""
+        fn = self.tracker.final_name
+
+        def hit(who, t):
+            return who is not None and fn(who) == old and moved(t)
+        n = 0
+        for g in self.segments:
+            if hit(g["who"], g["t0"]):
+                g["who"] = new
+                n += 1
+        for it in self.tx_items:
+            if "who" in it and hit(it["who"], it["t"]):
+                it["who"] = new
+        for inc in self.incidents:
+            if hit(inc["offender"], inc["t"]):
+                inc["offender"] = new
+        for lst in (self.rhetoric, self.tones, self.claims):
+            for x in lst:
+                if hit(x.get("speaker"), x["t"]):
+                    x["speaker"] = new
+        for tr in self.tracker.turns:
+            if hit(tr.name, tr.since):
+                tr.name = new
+        if move_voice:
+            self.tracker.move_voice(old, new)
+        elif split:
+            self.tracker.move_voice(old, new, *split)
+        self._log({"type": "reassign", "old": old, "new": new, "lines": n, "why": why})
+        self.relabel_all()
+        self.set_status(f"Ispravljeno: {n} redova „{old}“ → {new} ({why}). Mere i statistika preračunate.")
+        session_state.save(self)
+
+    def conflict_evidence(self, name, t, weight, source):
+        """Caption or face says `name` is talking while a voice NAMED someone else is talking. Enough evidence
+        (caption + face, two captions, or a face for ~30 s) means that voice was given the wrong name: it is
+        split (by the voiceprints of its lines) and the lines that sound like `name` are moved, retroactively."""
+        who = self.voice_at(t)
+        if not who:
+            return
+        who = self.tracker.final_name(who)
+        if who in (CHAIR, name) or who.startswith(("Glas ", "Govornik ")) or self.same_person(who, name):
+            return
+        ev = getattr(self, "conflicts", {})
+        self.conflicts = ev
+        lst = [e for e in ev.get((who, name), []) if t - e[0] < 180] + [(t, weight, source)]
+        ev[(who, name)] = lst
+        w = sum(e[1] for e in lst)
+        srcs = {e[2] for e in lst}
+        if (w >= 3 and len(srcs) >= 2) or (w >= 4 and "natpis" in srcs) or w >= 6:
+            ev.pop((who, name), None)
+            self.split_voice(who, name, [e[0] for e in lst])
+
+    def split_voice(self, old, new, times):
+        """Voice `old` mixes two people; around `times` it is `new`. Two-way clustering of the voiceprints of all
+        its lines decides, line by line, who said what (all of it, back to the start of the session)."""
+        import numpy as np
+        segs = [g for g in self.segments if self.tracker.final_name(g["who"]) == old]
+        with_emb = [g for g in segs if g.get("emb") is not None]
+        near = [g for g in with_emb if any(abs(g["t0"] - x) < 20 for x in times)]
+        split = None
+        if len(with_emb) >= 6 and near:
+            E = np.array([g["emb"] for g in with_emb], dtype=np.float32)
+            E /= np.linalg.norm(E, axis=1, keepdims=True) + 1e-9
+            c_new = np.mean([g["emb"] for g in near], axis=0).astype(np.float32)
+            c_new /= np.linalg.norm(c_new) + 1e-9
+            c_old = E[int(np.argmin(E @ c_new))].copy()
+            for _ in range(10):                          # 2-means, seeded by the evidence and its opposite
+                lab = (E @ c_new) >= (E @ c_old)
+                if lab.all() or not lab.any():
+                    break
+                c_new, c_old = E[lab].mean(0), E[~lab].mean(0)
+                c_new /= np.linalg.norm(c_new) + 1e-9
+                c_old /= np.linalg.norm(c_old) + 1e-9
+            lab = (E @ c_new) >= (E @ c_old)
+            if lab.all() or not lab.any() or float(c_new @ c_old) >= self.tracker.thr or (~lab).sum() < 3:
+                moved_t = None                           # one voice after all: the whole voice is `new`
+            else:
+                moved_t = sorted(g["t0"] for g, k in zip(with_emb, lab) if k)
+                kept_t = sorted(g["t0"] for g, k in zip(with_emb, lab) if not k)
+                split = (c_old, int((~lab).sum()), c_new, int(lab.sum()))
+        else:
+            moved_t = None
+        if moved_t is None:
+            self.reassign_lines(old, new, lambda tt: True, why="natpis/lice: ceo glas", move_voice=True)
+            return
+        import bisect
+
+        def moved(tt):
+            # a line (or measure, technique...) at tt belongs to the nearest line with a voiceprint
+            i, j = bisect.bisect_right(moved_t, tt + 0.5), bisect.bisect_right(kept_t, tt + 0.5)
+            a = moved_t[i - 1] if i else -1e9
+            b = kept_t[j - 1] if j else -1e9
+            return a >= b
+        self.reassign_lines(old, new, moved, why="natpis/lice: razdvojen pomešan glas", split=split)
 
     def check_claim_manually(self, line, selected, block, user_verdict=None):
         m = re.match(r"\[(\d+:\d\d:\d\d)\]\s+(.+?):\s(.*)", line)
@@ -1235,6 +1367,7 @@ class Main(QMainWindow):
 
     def on_caption_local(self, mp, group, score, t):
         self.last_local_caption = time.time()
+        self.conflict_evidence(mp["name"], t, 2, "natpis")
         self.tracker.set_caption(mp["name"], group, "", t, mp["gender"])
         self._log({"type": "caption", "src": "ocr", "t": t, "name": mp["name"], "group": group,
                    "score": round(score, 2)})
